@@ -3,8 +3,11 @@
 #include <btBulletDynamicsCommon.h>
 #include <LinearMath/btVector3.h>
 #include <LinearMath/btAlignedObjectArray.h>
-#include <CommonInterfaces/CommonRigidBodyBase.h>
-#include "BulletSoftBody/btSoftRigidDynamicsWorld.h"
+// #include <CommonInterfaces/CommonRigidBodyBase.h>
+#include <CommonInterfaces/CommonMultiBodyBase.h>
+
+// #include "BulletSoftBody/btSoftRigidDynamicsWorld.h"
+#include "BulletSoftBody/btSoftMultiBodyDynamicsWorld.h"
 #include "BulletSoftBody/btSoftBodyRigidBodyCollisionConfiguration.h"
 #include "BulletSoftBody/btSoftBodyHelpers.h"
 
@@ -53,15 +56,20 @@ void Mattress::registerModel(Nursing* base)
 							    0, //face.c_str(),
 							    node.c_str(),
 							    true /*false*/, true /*true*/, true /*true*/);
-  psb->rotate(btQuaternion(0, SIMD_PI / 2, 0));
-  float scale = 9.95;
+  // psb->rotate(btQuaternion(0, SIMD_PI / 2, 0));
+  psb->rotate(btQuaternion(0, 0, 0));
+  // float scale = 9.9;
+  float scale = 0.99;
   psb->scale(btVector3(scale, scale, scale));
-  psb->translate(btVector3(0, 15, 0));
+  // psb->translate(btVector3(0, 0, 1.5));
+  psb->translate(btVector3(0, 0, 1.0));
   psb->setVolumeMass(100);
   base->m_cutting = false;
-  psb->getCollisionShape()->setMargin(0.1);
-  psb->m_cfg.collisions = btSoftBody::fCollision::CL_SS + btSoftBody::fCollision::CL_RS
-    //+ btSoftBody::fCollision::CL_SELF
+  psb->getCollisionShape()->setMargin(0.01);
+  psb->m_cfg.collisions = btSoftBody::fCollision::CL_SS  
+    + btSoftBody::fCollision::CL_RS | btSoftBody::fCollision::SVSmask
+    // + btSoftBody::fCollision::SDF_RS
+    // + btSoftBody::fCollision::CL_SELF
     ;
 
   ///pass zero in generateClusters to create  cluster for each tetrahedron or triangle
@@ -73,7 +81,11 @@ void Mattress::registerModel(Nursing* base)
   psb->m_cfg.kMT = 0.05;
   psb->m_cfg.diterations = 100;
   psb->m_cfg.piterations = 100;
+  psb->m_cfg.kSRHR_CL = 1;
 
-  base->getSoftDynamicsWorld()->addSoftBody(psb);
-
+  btSoftMultiBodyDynamicsWorld* softWorld = base->getSoftDynamicsWorld();
+  if(softWorld){
+  	softWorld->addSoftBody(psb);
+        b3Printf("addSoftBody\n");
+  }
 }

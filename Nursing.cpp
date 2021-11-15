@@ -38,6 +38,8 @@
 #include "CommonInterfaces/CommonParameterInterface.h"
 #include "CommonInterfaces/CommonGraphicsAppInterface.h"
 
+#include <ExampleBrowser/OpenGLExampleBrowser.h>
+
 // ---------------------------------------
 // using include files
 #include <fstream>
@@ -50,7 +52,8 @@ class btBroadphaseInterface;
 class btCollisionShape;
 class btOverlappingPairCache;
 class btCollisionDispatcher;
-class btConstraintSolver;
+// class btConstraintSolver;
+class btMultiBodyConstraintSolver;
 struct btCollisionAlgorithmCreateFunc;
 class btDefaultCollisionConfiguration;
 
@@ -106,7 +109,7 @@ static btAlignedObjectArray<std::string> gMCFJFileNameArray;
 
 // ----------------------------------------------------------------------------------
 // constructor 
-Nursing::Nursing(struct GUIHelperInterface* helper, int option, const char* fileName)
+Nursing::Nursing(struct GUIHelperInterface* helper)
     : CommonMultiBodyBase(helper),
       m_drag(false)
 {
@@ -115,11 +118,13 @@ Nursing::Nursing(struct GUIHelperInterface* helper, int option, const char* file
   m_useMultiBody = true;
 
   static int count = 0;
+#if 0
   if (fileName)
   {
     setFileName(fileName);
   }
   else
+#endif
   {
     gMCFJFileNameArray.clear();
 
@@ -146,7 +151,8 @@ Nursing::Nursing(struct GUIHelperInterface* helper, int option, const char* file
 
     if (gMCFJFileNameArray.size() == 0)
     {
-	  gMCFJFileNameArray.push_back("./humanoid.xml");
+	  // gMCFJFileNameArray.push_back("./humanoid.xml");
+	  gMCFJFileNameArray.push_back("./humanoid2.xml");
     }
     int numFileNames = gMCFJFileNameArray.size();
 
@@ -169,8 +175,11 @@ void Nursing::setFileName(const char* mjcfFileName)
 {
   memcpy(m_fileName, mjcfFileName, strlen(mjcfFileName) + 1);
 }
-
 // ----------------------------------------------------------------------------------
+
+
+
+
 
 // ----------------------------------------------------------------------------------
 // error logger
@@ -312,9 +321,10 @@ static void Ctor_RbUpStack(Nursing* pdemo, int count)
   btTransform localTransform;
   localTransform.setIdentity();
   cylinderCompound->addChildShape(localTransform, boxShape);
-  btQuaternion orn(SIMD_HALF_PI, 0, 0);
-  localTransform.setRotation(orn);
-  //	localTransform.setOrigin(btVector3(1,1,1));
+  // btQuaternion orn(SIMD_HALF_PI, 0, 0);
+  btQuaternion orn(0, 0, 0);
+  // localTransform.setRotation(orn);
+  localTransform.setOrigin(btVector3(1,1,1));
   cylinderCompound->addChildShape(localTransform, cylinderShape);
 
   btCollisionShape* shape[] = {cylinderCompound,
@@ -361,6 +371,10 @@ static btSoftBody* Ctor_SoftBox(Nursing* pdemo, const btVector3& p, const btVect
     p + h * btVector3(-1, +1, +1),
     p + h * btVector3(+1, +1, +1)};
   btSoftBody* psb = btSoftBodyHelpers::CreateFromConvexHull(pdemo->m_softBodyWorldInfo, c, 8);
+  btScalar Margin = psb->getCollisionShape()->getMargin();
+  b3Printf("Margin = %f\n", Margin);
+  psb->getCollisionShape()->setMargin(0.1);
+  b3Printf("Margin = %f\n", Margin);
   psb->generateBendingConstraints(2);
   pdemo->getSoftDynamicsWorld()->addSoftBody(psb);
 
@@ -424,15 +438,81 @@ void Nursing::mouseMotionFunc(int x, int y)
     }
 }
 
+struct MyConvertPointerSizeT
+{
+        union {
+                const void* m_ptr;
+                size_t m_int;
+        };
+};
+bool shapePointerCompareFunc(const btCollisionObject* colA, const btCollisionObject* colB)
+{
+        MyConvertPointerSizeT a, b;
+        a.m_ptr = colA->getCollisionShape();
+        b.m_ptr = colB->getCollisionShape();
+        return (a.m_int < b.m_int);
+}
 
+int Nursing::createCheckeredTexture()
+{
+  int texWidth = 1024;
+  int texHeight = 1024;
+  btAlignedObjectArray<unsigned char> texels;
+  texels.resize(texWidth * texHeight * 3);
+  for (int i = 0; i < texWidth * texHeight * 3; i++)
+    texels[i] = 255;
+
+  int texId = m_guiHelper->registerTexture(&texels[0], texWidth, texHeight);
+  return texId;
+}
+
+void Nursing::autogenerateGraphicsObjects(btDiscreteDynamicsWorld* rbWorld, btVector4 rgba)
+{
+//sort the collision objects based on collision shape, the gfx library requires instances that re-use a shape to be added after eachother
+
+  btAlignedObjectArray<btCollisionObject*> sortedObjects;
+  sortedObjects.reserve(rbWorld->getNumCollisionObjects());
+  for (int i = 0; i < rbWorld->getNumCollisionObjects(); i++)
+  {
+    btCollisionObject* colObj = rbWorld->getCollisionObjectArray()[i];
+    sortedObjects.push_back(colObj);
+  }
+  sortedObjects.quickSort(shapePointerCompareFunc);
+  int whiteTextureId = createCheckeredTexture();
+  b3Printf("whiteTextureId = %d\n", whiteTextureId);
+  for (int i = 0; i < sortedObjects.size(); i++)
+  {
+    btCollisionObject* colObj = sortedObjects[i];
+    //btRigidBody* body = btRigidBody::upcast(colObj);
+    //does this also work for btMultiBody/btMultiBodyLinkCollider?
+    btSoftBody* sb = btSoftBody::upcast(colObj);
+    if (sb)
+    {
+      colObj->getCollisionShape()->setUserPointer(sb);
+    }
+    m_guiHelper->createCollisionShapeGraphicsObject(colObj->getCollisionShape());
+    int shapeIndex = colObj->getUserIndex();
+    m_guiHelper->replaceTexture(i, whiteTextureId);
+    int colorIndex = colObj->getBroadphaseHandle()->getUid() & 3;
+    btVector4 color = rgba;
+    // color = sColors[colorIndex];
+
+    if (colObj->getCollisionShape()->getShapeType() == STATIC_PLANE_PROXYTYPE)
+    {
+      color.setValue(1, 1, 1, 1);
+    }
+    m_guiHelper->createCollisionObjectGraphicsObject(colObj, color);
+  }
+}
+
+btAlignedObjectArray<std::string> MotorJointNames;
 void Nursing::initPhysics()
 {
   ///create concave ground mesh
 
-  m_guiHelper->setUpAxis(1);
-  // m_guiHelper->setUpAxis(2);
+  // m_guiHelper->setUpAxis(1);
+  m_guiHelper->setUpAxis(2);
   //	m_azi = 0;
-
 
   btCollisionShape* groundShape = 0;
   {
@@ -499,6 +579,7 @@ void Nursing::initPhysics()
 
   ///register some softbody collision algorithms on top of the default btDefaultCollisionConfiguration
   m_collisionConfiguration = new btSoftBodyRigidBodyCollisionConfiguration();
+  // m_collisionConfiguration = new btDefaultCollisionConfiguration();
 
   m_dispatcher = new btCollisionDispatcher(m_collisionConfiguration);
   m_softBodyWorldInfo.m_dispatcher = m_dispatcher;
@@ -517,9 +598,12 @@ void Nursing::initPhysics()
 
   m_softBodyWorldInfo.m_broadphase = m_broadphase;
 
-  btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver();
-
+  // btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver();
+  // m_solver = solver;
+  
+  btMultiBodyConstraintSolver* solver = new btMultiBodyConstraintSolver();
   m_solver = solver;
+
 
   btSoftBodySolver* softBodySolver = 0;
 #ifdef USE_AMD_OPENCL
@@ -549,14 +633,26 @@ void Nursing::initPhysics()
 
   // btDiscreteDynamicsWorld* world = new btSoftRigidDynamicsWorld(m_dispatcher, m_broadphase, m_solver, m_collisionConfiguration, softBodySolver);
   // m_dynamicsWorld = world;
-  createEmptyDynamicsWorld();
-  m_guiHelper->createPhysicsDebugDrawer(m_dynamicsWorld);
-  m_dynamicsWorld->getDebugDrawer()->setDebugMode(btIDebugDraw::DBG_DrawConstraints + btIDebugDraw::DBG_DrawContactPoints + btIDebugDraw::DBG_DrawAabb);  //+btIDebugDraw::DBG_DrawConstraintLimits);
+  // createEmptyDynamicsWorld(); // MultiBodyDynamicsWorldが生成される
 
+  btMultiBodyDynamicsWorld* world = new btSoftMultiBodyDynamicsWorld(m_dispatcher, m_broadphase, m_solver, m_collisionConfiguration, softBodySolver);
+  m_dynamicsWorld = world; // m_dynamicsはbyMultiBodyDynamicsWorld型
+  // -------------------------------------------------
+  // check world type
+  const std::type_info& info = typeid(m_dynamicsWorld);
+  const char* typeName = info.name();
+  b3Printf("typeName = %s\n", typeName);
+  // -------------------------------------------------
+  m_guiHelper->createPhysicsDebugDrawer(m_dynamicsWorld);
+  m_dynamicsWorld->getDebugDrawer()->setDebugMode(btIDebugDraw::DBG_DrawConstraints + btIDebugDraw::DBG_DrawContactPoints + btIDebugDraw::DBG_DrawAabb + btIDebugDraw::DBG_DrawConstraintLimits 
+		  + btIDebugDraw::DBG_DrawWireframe
+		  );
+
+  m_dynamicsWorld->debugDrawWorld();
   m_dynamicsWorld->setInternalTickCallback(pickingPreTickCallback, this, true);
 
   m_dynamicsWorld->getDispatchInfo().m_enableSPU = true;
-  m_dynamicsWorld->setGravity(btVector3(0, -10, 0));
+  m_dynamicsWorld->setGravity(btVector3(0, 0, -10));
   // m_softBodyWorldInfo.m_gravity.setValue(0, -10, 0);
   // m_guiHelper->createPhysicsDebugDrawer(m_dynamicsWorld);
   //	clientResetScene();
@@ -564,7 +660,7 @@ void Nursing::initPhysics()
   m_softBodyWorldInfo.m_sparsesdf.Initialize();
   //	clientResetScene();
 
-  //create ground object
+#if 0  //create ground object
   btTransform tr;
   tr.setIdentity();
   tr.setOrigin(btVector3(0, 0, 0));
@@ -577,6 +673,54 @@ void Nursing::initPhysics()
 
 
   m_dynamicsWorld->addCollisionObject(newOb);
+#endif
+
+#if 0  // create box object
+  btCollisionShape* boxshape = new btBoxShape(btVector3(0.25,0.25,0.25));
+  btTransform tr;
+  tr.setIdentity();
+  tr.setOrigin(btVector3(2, 0, 0.5));
+  btRigidBody* boxBody = createRigidBody(1.0, tr, boxshape);
+  m_dynamicsWorld->addRigidBody(boxBody);
+  btScalar Margin = boxBody->getCollisionShape()->getMargin();
+  b3Printf("Margin = %f\n", Margin);
+#endif
+
+#if 0  // create softbox object
+  btVector3 p = btVector3(0, 0, 2);
+  btVector3 s = btVector3(1, 1, 1);
+  Ctor_SoftBox(this, p, s);
+#endif	  
+
+#if 1  // create MultiBody Sphere
+  btCollisionShape* childShape = new btSphereShape(btScalar(0.25));
+  m_guiHelper->createCollisionShapeGraphicsObject(childShape);
+
+  btScalar mass = 10;
+  btVector3 baseInertiaDiag;
+  bool isFixed = (mass == 0);
+  childShape->calculateLocalInertia(mass, baseInertiaDiag);
+  btMultiBody* pMultiBody = new btMultiBody(0, mass, baseInertiaDiag, false, false);
+  btTransform startTrans;
+  startTrans.setIdentity();
+  startTrans.setOrigin(btVector3(0, 0.5, 3));
+
+  pMultiBody->setBaseWorldTransform(startTrans);
+
+  btMultiBodyLinkCollider* col = new btMultiBodyLinkCollider(pMultiBody, -1);
+  col->setCollisionShape(childShape);
+  pMultiBody->setBaseCollider(col);
+  bool isDynamic = (mass > 0 && !isFixed);
+  int collisionFilterGroup = isDynamic ? int(btBroadphaseProxy::DefaultFilter) : int(btBroadphaseProxy::StaticFilter);
+  int collisionFilterMask = isDynamic ? int(btBroadphaseProxy::AllFilter) : int(btBroadphaseProxy::AllFilter ^ btBroadphaseProxy::StaticFilter);
+
+  m_dynamicsWorld->addCollisionObject(col, collisionFilterGroup, collisionFilterMask);  
+  // m_dynamicsWorld->addCollisionObject(col);  
+
+  pMultiBody->finalizeMultiDof();
+
+  m_dynamicsWorld->addMultiBody(pMultiBody);
+#endif
 
   m_softBodyWorldInfo.m_sparsesdf.Reset();
 
@@ -585,14 +729,14 @@ void Nursing::initPhysics()
   m_softBodyWorldInfo.water_density = 0;
   m_softBodyWorldInfo.water_offset = 0;
   m_softBodyWorldInfo.water_normal = btVector3(0, 0, 0);
-  m_softBodyWorldInfo.m_gravity.setValue(0, -10, 0);
+  m_softBodyWorldInfo.m_gravity.setValue(0, 0, -10);
 
   m_autocam = false;
   m_raycast = false;
   m_cutting = false;
   m_results.fraction = 1.f;
 
-  BedFrame::registerModel(this);
+  // BedFrame::registerModel(this);
   Mattress::registerModel(this);
 
   // ----------------------------------------------------------------------------------
@@ -612,7 +756,7 @@ void Nursing::initPhysics()
   if (m_guiHelper->getParameterInterface())
   // if (m_guiHelper->getAppInterface())
   {
-    b3Printf("OK\n");
+    // b3Printf("OK\n");
     SliderParams slider("Gravity", &m_grav);
     slider.m_minVal = -10;
     slider.m_maxVal = 10;
@@ -620,19 +764,18 @@ void Nursing::initPhysics()
     m_guiHelper->getParameterInterface()->registerSliderFloatParameter(slider);
   }
 
-  // OK
   int flags = 0;
   b3BulletDefaultFileIO fileIO;
   BulletMJCFImporter importer(m_guiHelper, 0, &fileIO, flags);
   MyMJCFLogger logger;
   bool result = importer.loadMJCF(m_fileName, &logger);
+#if 1
   if (result)
   {
     btTransform rootTrans;
     rootTrans.setIdentity();
 
-    // OK
-    for (int m = 0; m < importer.getNumModels(); m++)
+    for (int m = 0; m < importer.getNumModels()-1; m++)
     {
       importer.activateModel(m);
 
@@ -648,7 +791,18 @@ void Nursing::initPhysics()
       MyMultiBodyCreator creation(m_guiHelper);
 
       rootTrans.setIdentity();
-      importer.getRootTransformInWorld(rootTrans);
+      if(m == 1){
+        // change humanoid1 start position
+        rootTrans.setOrigin(btVector3(0, -2, -0.2));
+      }
+      else if(m == 2){
+        // change humanoid2 start position
+        rootTrans.setOrigin(btVector3(1, -2, -0.2));
+      }
+      else{
+	// set floor position to root
+        importer.getRootTransformInWorld(rootTrans);
+      }
 
       ConvertURDF2Bullet(importer, creation, rootTrans, m_dynamicsWorld, m_useMultiBody, importer.getPathPrefix(), CUF_USE_MJCF);
 
@@ -662,6 +816,7 @@ void Nursing::initPhysics()
 #endif  //TEST_MULTIBODY_SERIALIZATION
 	mb->setBaseName(name->c_str());
 	mb->getBaseCollider()->setCollisionFlags(mb->getBaseCollider()->getCollisionFlags() | btCollisionObject::CF_HAS_FRICTION_ANCHOR);
+
 
 	//create motors for each btMultiBody joint
 	int numLinks = mb->getNumLinks();
@@ -690,6 +845,7 @@ void Nursing::initPhysics()
 	    {
 	      char motorName[1024];
 	      sprintf(motorName, "%s q ", jointName->c_str());
+	      MotorJointNames.push_back(*jointName);
 	      btScalar* motorPos = &m_data->m_motorTargetPositions[m_data->m_numMotors];
 	      *motorPos = 0.f;
 	      SliderParams slider(motorName, motorPos);
@@ -709,12 +865,33 @@ void Nursing::initPhysics()
 	      m_data->m_numMotors++;
 	    }
 	  }
+
+#if 0
+	  // change link color
+	  btCollisionObject* col = (btCollisionObject*)mb->getLinkCollider(mbLinkIndex);
+	  int index = col->getUserIndex();
+          const float color[4] = { 1, 1, 1, 1 };
+	  const float orn[4] = { 0, 0, 0, 1 };
+	  const float pos[4] = { 0.0, 0.0, 0.0, 1 };
+	  const float scale = 1.0f;
+	  const float scaling[4] = { scale, scale, scale, 1 };
+	  int renderInstance = m_guiHelper->registerGraphicsInstance(index, pos, orn, color, scaling);
+          col->setUserIndex(renderInstance);
+#endif
         }
       }
     }
   }
+#endif
 
-  m_guiHelper->autogenerateGraphicsObjects(m_dynamicsWorld);
+  btVector4 rgba = btVector4(1, 1, 1, 1);
+  Nursing::autogenerateGraphicsObjects(m_dynamicsWorld, rgba);
+#if 0
+  int texWidth = 1024;
+  int texHeight = 1024;
+  unsigned char texels = 255;
+  m_guiHelper->changeTexture(1, &texels, texWidth, texHeight);
+#endif
 }
 
 void Nursing::exitPhysics()
@@ -769,6 +946,9 @@ if (m_dynamicsWorld)
   // gravity[m_upAxis] = m_grav;
   // m_dynamicsWorld->setGravity(gravity);
 
+  // btScalar fixedTimeStep = 1. / 240.f;
+  btScalar fixedTimeStep = 1. / 120.f;
+
   for (int i = 0; i < m_data->m_numMotors; i++)
   {
     if (m_data->m_jointMotors[i])
@@ -793,14 +973,107 @@ if (m_dynamicsWorld)
 #endif
   }
 
+  if(DrawContactForceFlag)
+  {
+    DrawContactForce();
+  }
+  if(DrawMotorForceFlag)
+  {
+    DrawMotorForce();
+  }
+
   //the maximal coordinates/iterative MLCP solver requires a smallish timestep to converge
-  m_dynamicsWorld->stepSimulation(deltaTime, 10, 1. / 240.);
+  m_dynamicsWorld->stepSimulation(deltaTime, 10, fixedTimeStep);
+  // m_dynamicsWorld->stepSimulation(deltaTime);
   }
 }
 // ----------------------------------------------------------------------------------
 
+void Nursing::DrawContactForce(btScalar fixedTimeStep)
+{
+  int num_manifolds = m_dynamicsWorld->getDispatcher()->getNumManifolds(); // 衝突候補のペアの数
+  for(int i = 0; i < num_manifolds; i++)  // 各ペアを調べていく
+  {
+    // 衝突点を格納するためのキャッシュ(manifold)から情報を取得
+    btPersistentManifold* manifold = m_dynamicsWorld->getDispatcher()->getManifoldByIndexInternal(i);
+#if 0
+    btCollisionObject* obA = const_cast<btCollisionObject*>(manifold->getBody0()); // 衝突ペアのうちのオブジェクトA
+    btCollisionObject* obB = const_cast<btCollisionObject*>(manifold->getBody1()); // 衝突ペアのうちのオブジェクトB
+
+    // 各オブジェクトのユーザーインデックス
+    int user_idx0 = obA->getUserIndex();
+    int user_idx1 = obB->getUserIndex();
+    b3Printf("user_idx0 = %d\n", user_idx0);
+    b3Printf("user_idx1 = %d\n", user_idx1);
+#endif
+
+    int num_contacts = manifold->getNumContacts(); // オブジェクト間の衝突点数
+    btScalar pointSize = 20;
+    for(int j = 0; j < num_contacts; ++j){
+      btManifoldPoint& pt = manifold->getContactPoint(j); // 衝突点キャッシュから衝突点座標を取得
+      if(pt.getDistance() <= 0.0f)  // 衝突点間の距離がゼロ以下なら実際に衝突している
+      {
+	const btVector3& ptA = pt.getPositionWorldOnA();
+	const btVector3& ptB = pt.getPositionWorldOnB();
+	btScalar contact_force = pt.getAppliedImpulse();
+	b3Printf("contact force = %f\n", contact_force);        
+	b3Printf("contact force = %f\n", contact_force/fixedTimeStep);  
+	b3Printf("contact point = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());   
+	// b3Printf("contact pointA = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());       
+	// b3Printf("contact pointB = %f, %f, %f\n", ptB.getX(), ptB.getY(), ptB.getZ());       
+	btVector3 color2 = btVector3(0, 0, contact_force*2);
+	m_guiHelper->getRenderInterface()->drawPoint(ptA, color2, pointSize);
+      }
+    }
+  }
+}
+
+void Nursing::DrawMotorForce(btScalar fixedTimeStep)
+{
+  for(int i = 0; i < m_data->m_numMotors; i++)
+  {
+    // b3Printf("m_numMotors = %d\n", m_data->m_numMotors);
+    float motor_force = 0.0;
+    if(m_data->m_jointMotors[i])
+    {
+      // Show Joint Name
+      // std::string* jointName = new std::string(m_data->m_mb->getLink(i).m_jointName);
+      // b3Printf("i = %d : JointName is %s\n", i, jointName->c_str());
+      // 下のif文を付けないとsignal6でプログラムが終了する
+      if(m_data->m_jointMotors[i]->getDataSize())
+      {
+	motor_force = m_data->m_jointMotors[i]->getAppliedImpulse(0) / fixedTimeStep; 
+	// ----- Draw Constraint Force -----
+	btVector3 color = btVector3(motor_force/10, 0, 0);
+
+	btTransform tr;
+	if(MotorJointNames[i] == std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkA()).m_jointName)){
+	  tr = m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkA()).m_cachedWorldTransform;
+	  std::string* LinkAName = new std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkA()).m_linkName);
+	  std::string* JointAName = new std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkA()).m_jointName);
+
+	  // b3Printf("LinkA : %s  %f, %f, %f\n", LinkAName->c_str(), tr.getOrigin().getX(), tr.getOrigin().getY(), tr.getOrigin().getZ());
+	  b3Printf("jointName = %s", JointAName->c_str());
+	}
+	else if(m_data->m_jointMotors[i]->getLinkB() && MotorJointNames[i] == std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkB()).m_jointName)){
+	  tr = m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkB()).m_cachedWorldTransform;
+	  std::string* LinkBName = new std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkB()).m_linkName);
+	  std::string* JointBName = new std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkB()).m_jointName);
+
+	  // b3Printf("LinkB : %s  %f, %f, %f\n", LinkBName->c_str(), tr.getOrigin().getX(), tr.getOrigin().getY(), tr.getOrigin().getZ());
+	  b3Printf("jointName = %s\n", JointBName->c_str());
+	}
+	btVector3 pos = tr.getOrigin();
+	btScalar pointSize = 20;
+	b3Printf("	motor applied force = %f\n", motor_force);
+	m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
+      }
+    }
+  }
+}
+
 class CommonExampleInterface* NursingCreateFunc(struct CommonExampleOptions& options)
 {
   current_demo = options.m_option;
-  return new Nursing(options.m_guiHelper, options.m_option, options.m_fileName);
+  return new Nursing(options.m_guiHelper);
 }

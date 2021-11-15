@@ -30,7 +30,8 @@ void BedFrame::registerModel(CommonMultiBodyBase* base)
 	const GLInstanceVertex& v = glmesh->m_vertices->at(0);
 
 	//------------
-	float scale = 10;
+	// float scale = 10;
+        float scale = 1.0f;
 	btTriangleMesh* m_TriMesh = new btTriangleMesh();
 	for (int i=0;i<glmesh->m_numvertices/3;i++) {
 	  m_TriMesh->addTriangle( btVector3(scale*glmesh->m_vertices->at(3*i+0).xyzw[0], scale*glmesh->m_vertices->at(3*i+0).xyzw[1], scale*glmesh->m_vertices->at(3*i+0).xyzw[2]), 
@@ -57,9 +58,14 @@ void BedFrame::registerModel(CommonMultiBodyBase* base)
 
 	float color[4] = { 1, 1, 1, 1 };
 	float orn[4] = { 0, 0, 0, 1 };
-	float pos[4] = { 0, 0, -1.5, 1 }; // why shoud y value be required?
+	// float pos[4] = { 0, 0, -1.5, 1 }; // why shoud y value be required?
+	float pos[4] = { 0.0, 0.0, 0.0, 1 };
 	btVector3 position(pos[0], pos[1], pos[2]);
 	startTransform.setOrigin(position);
+	btScalar rot_angle = SIMD_PI / 2;
+	btQuaternion rot; 
+	rot.setRotation(btVector3(1, 0, 0), rot_angle);
+	startTransform.setRotation(rot);
 	btRigidBody* body = base->createRigidBody(mass, startTransform, shape);
 
 	int shapeId = base->m_guiHelper->registerGraphicsShape(&glmesh->m_vertices->at(0).xyzw[0],

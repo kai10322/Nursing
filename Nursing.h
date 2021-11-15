@@ -50,7 +50,7 @@ class btSoftSoftCollisionAlgorithm;
 class btSoftRididCollisionAlgorithm;
 
 
-#include "CommonInterfaces/CommonRigidBodyBase.h"
+// #include "CommonInterfaces/CommonRigidBodyBase.h"
 
 #define MAX_NUM_MOTORS 1024
 
@@ -72,7 +72,7 @@ struct ImportMJCFInternalData
   btGeneric6DofSpring2Constraint* m_generic6DofJointMotors[MAX_NUM_MOTORS];
   int m_numMotors;
   btMultiBody* m_mb;
-  btRigidBody* m_rb;
+  // btRigidBody* m_rb;
 };
 
 class Nursing : public CommonMultiBodyBase
@@ -111,12 +111,15 @@ public:
 
   btCollisionDispatcher* m_dispatcher;
 
-  btConstraintSolver* m_solver;
+  // btConstraintSolver* m_solver;
+  btMultiBodyConstraintSolver* m_solver;
 
   btCollisionAlgorithmCreateFunc* m_boxBoxCF;
 
   btDefaultCollisionConfiguration* m_collisionConfiguration;
 
+  bool DrawContactForceFlag = false;
+  bool DrawMotorForceFlag = false;
 public:
   void initPhysics();
 
@@ -126,26 +129,30 @@ public:
 
   void setFileName(const char* mjcfFileName);
 
+  int createCheckeredTexture();
+
+  void autogenerateGraphicsObjects(btDiscreteDynamicsWorld* rbWorld, btVector4 rgba = btVector4(1, 1, 1, 1));
+
   virtual void resetCamera()
   {
     //@todo depends on current_demo?
-#if 1
+#if 0
     float dist = 45;
-    float pitch = -31;
-    float yaw = 27;
-    float targetPos[3] = {10 - 1, 0};
-#endif
-#if 0	// MJCF Camera Setting
-    float dist = 3.5;
     float pitch = -28;
-    float yaw = -136;
+    float yaw = 136;
+    float targetPos[3] = {2 - 1, 0};
+#endif
+#if 1	// MJCF Camera Setting
+    float dist = 4.5;
+    float pitch = -28;
+    float yaw = 56;
     float targetPos[3] = {0.47, 0, -0.64};
 #endif  
     m_guiHelper->resetCamera(dist, yaw, pitch, targetPos[0], targetPos[1], targetPos[2]);
   }
 
 #if 1
-  Nursing(struct GUIHelperInterface* helper, int option, const char* fileName);
+  Nursing(struct GUIHelperInterface* helper);
 #endif
 
   virtual ~Nursing()
@@ -197,9 +204,10 @@ public:
     CommonMultiBodyBase::renderScene();
     btSoftMultiBodyDynamicsWorld* softWorld = getSoftDynamicsWorld();
 
-    if(softWorld->getSoftBodyArray().size()){
-      b3Printf("SoftBody.size() = %d\n",softWorld->getSoftBodyArray().size());
+    if(softWorld){
+      // b3Printf("SoftBody.size() = %d\n",softWorld->getSoftBodyArray().size());
       for (int i = 0; i < softWorld->getSoftBodyArray().size(); i++)
+      // for(int i = 0; i < 0; i++)
       {
 	btSoftBody* psb = (btSoftBody*)softWorld->getSoftBodyArray()[i];
 	//if (softWorld->getDebugDrawer() && !(softWorld->getDebugDrawer()->getDebugMode() & (btIDebugDraw::DBG_DrawWireframe)))
@@ -210,6 +218,9 @@ public:
       }
     }
   }
+
+  void DrawContactForce(btScalar fixedTimeStep = 1. / 60.f);
+  void DrawMotorForce(btScalar fixedTimeStep = 1. / 60.f);
 };
 
 class CommonExampleInterface* NursingCreateFunc(struct CommonExampleOptions& options);

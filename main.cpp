@@ -13,6 +13,11 @@ subject to the following restrictions:
 3. This notice may not be removed or altered from any source distribution.
 */
 //#define B3_USE_STANDALONE_EXAMPLE 1
+
+#define _DEBUG
+// #define GL_FILL 0x1B02
+// #define GL_FRONT_AND_BACK 0x0408
+
 #ifdef _DEBUG
 #pragma comment(lib, "BulletExampleBrowserLib_debug.lib")
 #pragma comment(lib, "BulletCollision_debug.lib")
@@ -49,9 +54,19 @@ subject to the following restrictions:
 
 #include <OpenGLWindow/SimpleOpenGL3App.h>
 #include <ExampleBrowser/OpenGLGuiHelper.h>
+#include <ExampleBrowser/OpenGLExampleBrowser.h>
+
+#include <LinearMath/btIDebugDraw.h>
+
+#include <ThirdPartyLibs/glad/glad/gl.h>
+
+#include <SharedMemory/SharedMemoryPublic.h>
 
 CommonExampleInterface* example;
+Nursing* nursing = 0;
+
 int gSharedMemoryKey = -1;
+static SharedMemoryInterface* sSharedMem = 0;
 
 b3MouseMoveCallback prevMouseMoveCallback = 0;
 static void OnMouseMove(float x, float y)
@@ -78,6 +93,69 @@ static void OnMouseDown(int button, int state, float x, float y)
     }
 }
 
+b3KeyboardCallback prevKeyboardCallback = 0;
+static bool renderVisualGeometry = true;
+static bool gEnableDefaultKeyboardShortcuts = true;
+static bool gEnableRenderLoop = true;
+bool visualWireframe = false;
+int gDebugDrawFlags = 0;
+
+static void OnKeyboardCallback(int key, int state)
+{
+  // b3Printf("key=%d, state=%d\n", key, state);
+  bool handled = false;
+
+  handled = example->keyboardCallback(key, state);
+  if (!handled)
+  {
+    if(prevKeyboardCallback)
+      prevKeyboardCallback(key, state);
+  }
+
+  if(key == 'a' && state)
+  {
+    gDebugDrawFlags ^= btIDebugDraw::DBG_DrawAabb;
+  }
+  if(key == 'w' && state)
+  {
+    visualWireframe = !visualWireframe;
+    gDebugDrawFlags ^= btIDebugDraw::DBG_DrawWireframe; 
+    // if (renderVisualGeometry && ((gDebugDrawFlags & btIDebugDraw::DBG_DrawWireframe) == 0))
+    if (gDebugDrawFlags & btIDebugDraw::DBG_DrawWireframe)
+    {
+      if (visualWireframe)
+      {
+        B3_PROFILE("physicsDebugDraw");
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        example->physicsDebugDraw(gDebugDrawFlags);
+      }
+      BT_PROFILE("Render Scene");
+      example->renderScene();
+      // b3Printf("a\n");
+    }
+#if 1
+    else
+    {
+      B3_PROFILE("physicsDebugDraw");
+      glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+      example->physicsDebugDraw(gDebugDrawFlags);
+    }
+#endif
+
+    // b3Printf("Draw Wire Frame\n");
+  }
+  if(key == 'v' && state) 
+  {
+    renderVisualGeometry = !renderVisualGeometry;
+  }
+  if(key == 'f' && state){
+    nursing->DrawContactForceFlag = !(nursing->DrawContactForceFlag);
+  }
+  if(key == 't' && state){
+    nursing->DrawMotorForceFlag = !(nursing->DrawMotorForceFlag);
+  }
+}
+
 class LessDummyGuiHelper : public DummyGUIHelper
 {
   CommonGraphicsApp* m_app;
@@ -93,24 +171,58 @@ public:
   {
   }
 };
+
+void OpenGLExampleBrowserVisualizerFlagCallback(int flag, bool enable)
+{
+  if (flag == COV_ENABLE_RENDERING)
+  {
+    gEnableRenderLoop = (enable != 0);
+  }
+
+  if (flag == COV_ENABLE_KEYBOARD_SHORTCUTS)
+  {
+    gEnableDefaultKeyboardShortcuts = enable;
+  }
+
+  if (flag == COV_ENABLE_WIREFRAME)
+  {
+    visualWireframe = enable;
+    if (visualWireframe)
+    {
+      gDebugDrawFlags |= btIDebugDraw::DBG_DrawWireframe;
+    }
+    else
+    {
+      gDebugDrawFlags &= ~btIDebugDraw::DBG_DrawWireframe;
+    }
+  }
+}
+
+
 int main(int argc, char* argv[])
 {
   SimpleOpenGL3App* app = new SimpleOpenGL3App("Bullet Standalone Example", 1024, 768, true);
   
   prevMouseButtonCallback = app->m_window->getMouseButtonCallback();
   prevMouseMoveCallback = app->m_window->getMouseMoveCallback();
+  prevKeyboardCallback = app->m_window->getKeyboardCallback();
   
   app->m_window->setMouseButtonCallback((b3MouseButtonCallback)OnMouseDown);
   app->m_window->setMouseMoveCallback((b3MouseMoveCallback)OnMouseMove);
+  app->m_window->setKeyboardCallback((b3KeyboardCallback)OnKeyboardCallback);
   
   OpenGLGuiHelper gui(app, false);
+
+  gui.setVisualizerFlagCallback(OpenGLExampleBrowserVisualizerFlagCallback);
   //LessDummyGuiHelper gui(app);
   //DummyGUIHelper gui;
   
   CommonExampleOptions options(&gui);
+  options.m_sharedMem = sSharedMem;
   
   //	example = StandaloneExampleCreateFunc(options);
-  example = NursingCreateFunc(options);
+  nursing = (Nursing*)NursingCreateFunc(options);
+  example = nursing;
   example->processCommandLineArgs(argc, argv);
   
   example->initPhysics();
@@ -131,17 +243,17 @@ int main(int argc, char* argv[])
       clock.reset();
 
       example->renderScene();
-      b3Printf("OK\n");
       
       DrawGridData dg;
       dg.upAxis = app->getUpAxis();
-      app->drawGrid(dg);
+      // app->drawGrid(dg);
       
       app->swapBuffer();
     } while (!app->m_window->requestedExit());
   
   example->exitPhysics();
   delete example;
+  delete nursing;
   delete app;
   return 0;
 }
