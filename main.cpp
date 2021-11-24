@@ -131,7 +131,7 @@ static void OnKeyboardCallback(int key, int state)
       }
       BT_PROFILE("Render Scene");
       example->renderScene();
-      // b3Printf("a\n");
+      b3Printf("a\n");
     }
 #if 1
     else

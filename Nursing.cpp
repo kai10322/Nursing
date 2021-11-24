@@ -15,10 +15,15 @@
 
 ///btSoftBody implementation by Nathanael Presson
 
+#define DEBUG_HUMANOID 
+// #define CREATE_SOFTBOX
+// #define CREATE_MULTIBODY_BOX
+
 #include "btBulletDynamicsCommon.h"
 #include "BulletSoftBody/btSoftMultiBodyDynamicsWorld.h" //
 
 #include "BulletCollision/CollisionDispatch/btSphereSphereCollisionAlgorithm.h"
+// #include <BulletCollision/CollisionDispatch/btCollisionObject.h>
 #include "BulletCollision/NarrowPhaseCollision/btGjkEpa2.h"
 #include "LinearMath/btQuickprof.h"
 #include "LinearMath/btIDebugDraw.h"
@@ -378,6 +383,9 @@ static btSoftBody* Ctor_SoftBox(Nursing* pdemo, const btVector3& p, const btVect
   psb->generateBendingConstraints(2);
   pdemo->getSoftDynamicsWorld()->addSoftBody(psb);
 
+  int flag = psb->getCollisionFlags();
+  psb->setCollisionFlags(psb->getCollisionFlags() | btCollisionObject::CF_HAS_CONTACT_STIFFNESS_DAMPING);
+  b3Printf("flags = %d\n", flag);
   return (psb);
 }
 
@@ -492,7 +500,7 @@ void Nursing::autogenerateGraphicsObjects(btDiscreteDynamicsWorld* rbWorld, btVe
     }
     m_guiHelper->createCollisionShapeGraphicsObject(colObj->getCollisionShape());
     int shapeIndex = colObj->getUserIndex();
-    m_guiHelper->replaceTexture(i, whiteTextureId);
+    // m_guiHelper->replaceTexture(i, whiteTextureId);
     int colorIndex = colObj->getBroadphaseHandle()->getUid() & 3;
     btVector4 color = rgba;
     // color = sColors[colorIndex];
@@ -501,6 +509,14 @@ void Nursing::autogenerateGraphicsObjects(btDiscreteDynamicsWorld* rbWorld, btVe
     {
       color.setValue(1, 1, 1, 1);
     }
+
+#if 0
+    if(colObj->getCollisionFlags() & btCollisionObject::CF_KINEMATIC_OBJECT)
+    {
+      btRigidBody* rb = btRigidBody::upcast(colObj);
+      sb->appendAnchor(0, rb);
+    }
+#endif
     m_guiHelper->createCollisionObjectGraphicsObject(colObj, color);
   }
 }
@@ -639,9 +655,9 @@ void Nursing::initPhysics()
   m_dynamicsWorld = world; // m_dynamicsはbyMultiBodyDynamicsWorld型
   // -------------------------------------------------
   // check world type
-  const std::type_info& info = typeid(m_dynamicsWorld);
-  const char* typeName = info.name();
-  b3Printf("typeName = %s\n", typeName);
+  // const std::type_info& info = typeid(m_dynamicsWorld);
+  // const char* typeName = info.name();
+  // b3Printf("typeName = %s\n", typeName);
   // -------------------------------------------------
   m_guiHelper->createPhysicsDebugDrawer(m_dynamicsWorld);
   m_dynamicsWorld->getDebugDrawer()->setDebugMode(btIDebugDraw::DBG_DrawConstraints + btIDebugDraw::DBG_DrawContactPoints + btIDebugDraw::DBG_DrawAabb + btIDebugDraw::DBG_DrawConstraintLimits 
@@ -660,10 +676,12 @@ void Nursing::initPhysics()
   m_softBodyWorldInfo.m_sparsesdf.Initialize();
   //	clientResetScene();
 
-#if 0  //create ground object
+#ifndef DEBUG_HUMANOID  //create ground object
   btTransform tr;
   tr.setIdentity();
-  tr.setOrigin(btVector3(0, 0, 0));
+  tr.setOrigin(btVector3(0, 0, -1.5));
+  btQuaternion q; q.setRotation(btVector3(1, 0, 0), SIMD_PI / 2);
+  tr.setRotation(q);
 
   btCollisionObject* newOb = new btCollisionObject();
   newOb->setWorldTransform(tr);
@@ -677,33 +695,37 @@ void Nursing::initPhysics()
 
 #if 0  // create box object
   btCollisionShape* boxshape = new btBoxShape(btVector3(0.25,0.25,0.25));
-  btTransform tr;
-  tr.setIdentity();
-  tr.setOrigin(btVector3(2, 0, 0.5));
-  btRigidBody* boxBody = createRigidBody(1.0, tr, boxshape);
-  m_dynamicsWorld->addRigidBody(boxBody);
+  btTransform tr2;
+  tr2.setIdentity();
+  tr2.setOrigin(btVector3(0, 0, 3.0));
+  btRigidBody* boxBody = createRigidBody(41.0, tr2, boxshape);
+  int collisionFilterGroup = int(btBroadphaseProxy::DefaultFilter);
+  int collisionFilterMask = int(btBroadphaseProxy::AllFilter);
+  m_dynamicsWorld->addRigidBody(boxBody, collisionFilterGroup, collisionFilterMask);
   btScalar Margin = boxBody->getCollisionShape()->getMargin();
   b3Printf("Margin = %f\n", Margin);
 #endif
 
-#if 0  // create softbox object
+#ifdef CREATE_SOFTBOX  // create softbox object
   btVector3 p = btVector3(0, 0, 2);
   btVector3 s = btVector3(1, 1, 1);
   Ctor_SoftBox(this, p, s);
 #endif	  
 
-#if 1  // create MultiBody Sphere
+#ifdef CREATE_MULTIBODY_BOX  // create MultiBody Box
   btCollisionShape* childShape = new btSphereShape(btScalar(0.25));
-  m_guiHelper->createCollisionShapeGraphicsObject(childShape);
+  // btCollisionShape* childShape = new btBoxShape(btVector3(0.25, 0.25, 0.25));
+  // m_guiHelper->createCollisionShapeGraphicsObject(childShape);
 
-  btScalar mass = 10;
+  btScalar mass = 41.f;
   btVector3 baseInertiaDiag;
-  bool isFixed = (mass == 0);
+  bool isFixed = (mass == 0.0);
   childShape->calculateLocalInertia(mass, baseInertiaDiag);
   btMultiBody* pMultiBody = new btMultiBody(0, mass, baseInertiaDiag, false, false);
   btTransform startTrans;
   startTrans.setIdentity();
-  startTrans.setOrigin(btVector3(0, 0.5, 3));
+  startTrans.setOrigin(btVector3(0, 0, 1.8));
+  // startTrans.setOrigin(btVector3(0, 0, 1));
 
   pMultiBody->setBaseWorldTransform(startTrans);
 
@@ -713,6 +735,9 @@ void Nursing::initPhysics()
   bool isDynamic = (mass > 0 && !isFixed);
   int collisionFilterGroup = isDynamic ? int(btBroadphaseProxy::DefaultFilter) : int(btBroadphaseProxy::StaticFilter);
   int collisionFilterMask = isDynamic ? int(btBroadphaseProxy::AllFilter) : int(btBroadphaseProxy::AllFilter ^ btBroadphaseProxy::StaticFilter);
+
+  b3Printf("CollisionGroup = %d\n", collisionFilterGroup);
+  b3Printf("CollisionMask = %d\n", collisionFilterMask);
 
   m_dynamicsWorld->addCollisionObject(col, collisionFilterGroup, collisionFilterMask);  
   // m_dynamicsWorld->addCollisionObject(col);  
@@ -769,7 +794,7 @@ void Nursing::initPhysics()
   BulletMJCFImporter importer(m_guiHelper, 0, &fileIO, flags);
   MyMJCFLogger logger;
   bool result = importer.loadMJCF(m_fileName, &logger);
-#if 1
+#ifdef DEBUG_HUMANOID
   if (result)
   {
     btTransform rootTrans;
@@ -793,7 +818,14 @@ void Nursing::initPhysics()
       rootTrans.setIdentity();
       if(m == 1){
         // change humanoid1 start position
-        rootTrans.setOrigin(btVector3(0, -2, -0.2));
+        // rootTrans.setOrigin(btVector3(2, -1.5, -0.2));
+#if 1
+        rootTrans.setOrigin(btVector3(1, 0, 0.65)); // BedFrameなしの時
+        // rootTrans.setOrigin(btVector3(1, 0, 1.0)); // BedFrameありの時
+        // rootTrans.setOrigin(btVector3(0, -1.5, 1.5));
+	btQuaternion q; q.setRotation(btVector3(0, -1, 0), SIMD_PI/2);
+	rootTrans.setRotation(q);
+#endif
       }
       else if(m == 2){
         // change humanoid2 start position
@@ -808,6 +840,10 @@ void Nursing::initPhysics()
 
       mb = creation.getBulletMultiBody();
 
+      // calc humanoid total mass
+      btScalar TotalMass = mb->getBaseMass();
+      b3Printf("BaseMass = %d\n", TotalMass);
+
       if (mb)
       {
 	std::string* name = new std::string(importer.getLinkName(importer.getRootLinkIndex()));m_nameMemory.push_back(name);
@@ -820,6 +856,7 @@ void Nursing::initPhysics()
 
 	//create motors for each btMultiBody joint
 	int numLinks = mb->getNumLinks();
+
 	for (int i = 0; i < numLinks; i++) // numLinks = 33
 	{
 	  int mbLinkIndex = i;
@@ -839,6 +876,9 @@ void Nursing::initPhysics()
 	  mb->getLink(i).m_linkName = linkName->c_str();
 	  mb->getLink(i).m_jointName = jointName->c_str();
 	  m_data->m_mb = mb;
+
+          TotalMass += mb->getLinkMass(i);
+
 	  if (mb->getLink(mbLinkIndex).m_jointType == btMultibodyLink::eRevolute || mb->getLink(mbLinkIndex).m_jointType == btMultibodyLink::ePrismatic)
 	  {
 	    if (m_data->m_numMotors < MAX_NUM_MOTORS)
@@ -866,6 +906,7 @@ void Nursing::initPhysics()
 	    }
 	  }
 
+          
 #if 0
 	  // change link color
 	  btCollisionObject* col = (btCollisionObject*)mb->getLinkCollider(mbLinkIndex);
@@ -879,6 +920,10 @@ void Nursing::initPhysics()
           col->setUserIndex(renderInstance);
 #endif
         }
+      }
+      if(m == 1)
+      {
+        b3Printf("TotalMass = %f\n", TotalMass);
       }
     }
   }
@@ -946,8 +991,8 @@ if (m_dynamicsWorld)
   // gravity[m_upAxis] = m_grav;
   // m_dynamicsWorld->setGravity(gravity);
 
-  // btScalar fixedTimeStep = 1. / 240.f;
-  btScalar fixedTimeStep = 1. / 120.f;
+  btScalar fixedTimeStep = 1. / 240.f;
+  // btScalar fixedTimeStep = 1. / 120.f;
 
   for (int i = 0; i < m_data->m_numMotors; i++)
   {
@@ -981,6 +1026,7 @@ if (m_dynamicsWorld)
   {
     DrawMotorForce();
   }
+  DrawSoftBodyAppliedForce();
 
   //the maximal coordinates/iterative MLCP solver requires a smallish timestep to converge
   m_dynamicsWorld->stepSimulation(deltaTime, 10, fixedTimeStep);
@@ -1011,7 +1057,7 @@ void Nursing::DrawContactForce(btScalar fixedTimeStep)
     btScalar pointSize = 20;
     for(int j = 0; j < num_contacts; ++j){
       btManifoldPoint& pt = manifold->getContactPoint(j); // 衝突点キャッシュから衝突点座標を取得
-      if(pt.getDistance() <= 0.0f)  // 衝突点間の距離がゼロ以下なら実際に衝突している
+      // if(pt.getDistance() <= 0.0f)  // 衝突点間の距離がゼロ以下なら実際に衝突している
       {
 	const btVector3& ptA = pt.getPositionWorldOnA();
 	const btVector3& ptB = pt.getPositionWorldOnB();
@@ -1071,6 +1117,47 @@ void Nursing::DrawMotorForce(btScalar fixedTimeStep)
     }
   }
 }
+
+#if 1
+void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
+{
+  int num_manifolds = m_dynamicsWorld->getDispatcher()->getNumManifolds(); // 衝突候補のペアの数
+  for(int i = 0; i < num_manifolds; i++)  // 各ペアを調べていく
+  {
+    // 衝突点を格納するためのキャッシュ(manifold)から情報を取得
+    btPersistentManifold* manifold = m_dynamicsWorld->getDispatcher()->getManifoldByIndexInternal(i);
+#if 1
+    btCollisionObject* obA = const_cast<btCollisionObject*>(manifold->getBody0()); // 衝突ペアのうちのオブジェクトA
+    btCollisionObject* obB = const_cast<btCollisionObject*>(manifold->getBody1()); // 衝突ペアのうちのオブジェクトB
+    int obAType = obA->getInternalType();
+    int obBType = obB->getInternalType();
+#endif
+
+    if((obAType == btCollisionObject::CO_SOFT_BODY ) || (obBType == btCollisionObject::CO_SOFT_BODY ))
+    {
+      b3Printf("Draw SoftBody Force\n");
+      int num_contacts = manifold->getNumContacts(); // オブジェクト間の衝突点数
+      btScalar pointSize = 20;
+      for(int j = 0; j < num_contacts; ++j){
+	btManifoldPoint& pt = manifold->getContactPoint(j); // 衝突点キャッシュから衝突点座標を取得
+	// if(pt.getDistance() <= 0.0f)  // 衝突点間の距離がゼロ以下なら実際に衝突している
+	{
+	  const btVector3& ptA = pt.getPositionWorldOnA();
+	  const btVector3& ptB = pt.getPositionWorldOnB();
+	  btScalar contact_force = pt.getAppliedImpulse();
+	  b3Printf("contact force = %f\n", contact_force);        
+	  b3Printf("contact force = %f\n", contact_force/fixedTimeStep);  
+	  b3Printf("contact point = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());   
+	  // b3Printf("contact pointA = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());       
+	  // b3Printf("contact pointB = %f, %f, %f\n", ptB.getX(), ptB.getY(), ptB.getZ());       
+	  btVector3 color2 = btVector3(0, 0, contact_force*2);
+	  m_guiHelper->getRenderInterface()->drawPoint(ptA, color2, pointSize);
+	}
+      }
+    }
+  }
+}
+#endif
 
 class CommonExampleInterface* NursingCreateFunc(struct CommonExampleOptions& options)
 {

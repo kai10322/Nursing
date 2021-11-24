@@ -30,8 +30,8 @@ void BedFrame::registerModel(CommonMultiBodyBase* base)
 	const GLInstanceVertex& v = glmesh->m_vertices->at(0);
 
 	//------------
-	// float scale = 10;
-        float scale = 1.0f;
+	// float scale = 1.0f;
+        float scale = 0.93f;
 	btTriangleMesh* m_TriMesh = new btTriangleMesh();
 	for (int i=0;i<glmesh->m_numvertices/3;i++) {
 	  m_TriMesh->addTriangle( btVector3(scale*glmesh->m_vertices->at(3*i+0).xyzw[0], scale*glmesh->m_vertices->at(3*i+0).xyzw[1], scale*glmesh->m_vertices->at(3*i+0).xyzw[2]), 
@@ -67,6 +67,12 @@ void BedFrame::registerModel(CommonMultiBodyBase* base)
 	rot.setRotation(btVector3(1, 0, 0), rot_angle);
 	startTransform.setRotation(rot);
 	btRigidBody* body = base->createRigidBody(mass, startTransform, shape);
+
+        body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
+
+        int collisionFilterGroup = int(btBroadphaseProxy::DefaultFilter);
+        int collisionFilterMask = int(btBroadphaseProxy::AllFilter);
+        base->m_dynamicsWorld->addRigidBody(body, collisionFilterGroup, collisionFilterMask);
 
 	int shapeId = base->m_guiHelper->registerGraphicsShape(&glmesh->m_vertices->at(0).xyzw[0],
 		glmesh->m_numvertices,
