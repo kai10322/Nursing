@@ -18,6 +18,8 @@
 #define DEBUG_HUMANOID 
 // #define CREATE_SOFTBOX
 // #define CREATE_MULTIBODY_BOX
+#define CREATE_TETRACUBE 
+#define CREATE_CLOTH
 
 #include "btBulletDynamicsCommon.h"
 #include "BulletSoftBody/btSoftMultiBodyDynamicsWorld.h" //
@@ -106,6 +108,11 @@ int current_demo = 20;
 #define MAX_NUM_MOTORS 1024
 
 //
+
+struct TetraCube
+{
+#include "cube.inl"
+};
 
 // ---------------------
 // variable to store mjcf file names
@@ -412,6 +419,83 @@ static btSoftBody* Ctor_SoftBoulder(Nursing* pdemo, const btVector3& p, const bt
 // 100kg Stanford's bunny
 //
 
+// 
+// Tetra Cube
+//
+static btSoftBody* TetraCube(Nursing* pdemo, const btVector3& p, const btVector3& s)
+{
+  btSoftBody* psb = btSoftBodyHelpers::CreateFromTetGenData(
+		  pdemo->m_softBodyWorldInfo,
+		  TetraCube::getElements(),0,TetraCube::getNodes(),
+		  false, true, true);
+
+  psb->scale(btVector3(s.x()*0.65, s.y()*0.7, s.z()*0.65));
+  psb->translate(btVector3(p.x(), p.y(), p.z()));
+  // psb->setVolumeMass(4500);
+  psb->setVolumeDensity(45);
+  psb->m_cfg.piterations = 50;
+  psb->generateClusters(0);
+  // psb->m_cfg.kSR_SPLT_CL = 1.0; // Soft vs rigid impulse split (cluster only)
+  // psb->m_cfg.citerations = 10;
+
+  psb->getCollisionShape()->setMargin(0.05);
+  psb->m_materials[0]->m_kLST = 0.7;
+  // psb->m_materials[0]->m_kVST = 0.3;
+  psb->m_cfg.kKHR = 1.0;
+  psb->m_cfg.kCHR = 1.0;
+  psb->generateBendingConstraints(2);
+  psb->m_cfg.kMT = 0.5; // 元の形状を保とうとする力を働かせる // 0.0
+  psb->m_cfg.kVC = 40.0; // 体積維持係数(体積一定にする力)
+  psb->m_sleepingThreshold = 0;
+  psb->setPose(true, false);
+  // pdemo->getSoftDynamicsWorld()->getSolverInfo().m_splitImpulse = false;
+  // pdemo->getSoftDynamicsWorld()->getSolverInfo().m_leastSquaresResidualThreshold = 1e-5;
+  // pdemo->getSoftDynamicsWorld()->getSolverInfo().m_numIterations = 100;
+  psb->m_cfg.collisions = 
+	  // btSoftBody::fCollision::CL_SS + btSoftBody::fCollision::CL_RS;
+	  btSoftBody::fCollision::SDF_RS + btSoftBody::fCollision::CL_SS;
+
+  pdemo->getSoftDynamicsWorld()->addSoftBody(psb);
+
+  return (psb);
+}
+
+//
+//Cloth
+//
+// static btSoftBody* Cloth(Nursing* pdemo, const btScalar& s)
+static btSoftBody* Cloth(Nursing* pdemo)
+{
+	btScalar s = 1.0;
+        btSoftBody* psb = btSoftBodyHelpers::CreatePatch(
+			pdemo->m_softBodyWorldInfo, 
+			btVector3(-s*2., -s*1.5, 0), btVector3(+s*2., -s*1.5, 0),
+                        btVector3(-s*2., +s*1.5, 0),btVector3(+s*2., +s*1.5, 0),
+                        31, 31, // 31,31,
+                        0, // 1 + 2 + 4 + 8
+			true);
+
+        psb->getCollisionShape()->setMargin(0.01);
+        btSoftBody::Material* pm = psb->appendMaterial();
+        pm->m_kLST = 0.4;
+        pm->m_flags -= btSoftBody::fMaterial::DebugDraw;
+        psb->generateBendingConstraints(2, pm);
+        // psb->setTotalMass(200);
+        psb->setTotalMass(1000.0);
+	psb->translate(btVector3(0, 0, 1));
+	psb->m_cfg.kDF = 1;
+        psb->m_cfg.kSRHR_CL = 1;
+        psb->m_cfg.kSR_SPLT_CL = 0;
+        psb->m_cfg.collisions = btSoftBody::fCollision::CL_SS + btSoftBody::fCollision::CL_RS;
+        // psb->m_cfg.collisions = btSoftBody::fCollision::CL_SS + btSoftBody::fCollision::SDF_RS;
+        psb->generateBendingConstraints(2, pm);
+	psb->generateClusters(0);
+        psb->getCollisionShape()->setMargin(0.05);
+        pdemo->getSoftDynamicsWorld()->addSoftBody(psb);
+
+	return (psb);
+}
+
 void Nursing::setDrawClusters(bool drawClusters)
 {
   if (drawClusters)
@@ -530,6 +614,7 @@ void Nursing::initPhysics()
   m_guiHelper->setUpAxis(2);
   //	m_azi = 0;
 
+  // Nursing::setDrawClusters(true);
   btCollisionShape* groundShape = 0;
   {
     int i;
@@ -706,11 +791,23 @@ void Nursing::initPhysics()
   b3Printf("Margin = %f\n", Margin);
 #endif
 
+
+#ifdef CREATE_TETRACUBE  // create TetraCube object
+  btVector3 p1 = btVector3(0, 0, 0.7);
+  btVector3 s1 = btVector3(1.90, 1, 0.2);
+  TetraCube(this, p1, s1);
+#endif
+
 #ifdef CREATE_SOFTBOX  // create softbox object
-  btVector3 p = btVector3(0, 0, 2);
-  btVector3 s = btVector3(1, 1, 1);
-  Ctor_SoftBox(this, p, s);
+  btVector3 p2 = btVector3(0, 0, 2);
+  btVector3 s2 = btVector3(1, 1, 1);
+  Ctor_SoftBox(this, p2, s2);
 #endif	  
+
+#ifdef CREATE_CLOTH  // create Cloth Object
+  // btScalar s3 = 1.0;
+  Cloth(this);
+#endif
 
 #ifdef CREATE_MULTIBODY_BOX  // create MultiBody Box
   btCollisionShape* childShape = new btSphereShape(btScalar(0.25));
@@ -762,7 +859,7 @@ void Nursing::initPhysics()
   m_results.fraction = 1.f;
 
   // BedFrame::registerModel(this);
-  Mattress::registerModel(this);
+  // Mattress::registerModel(this);
 
   // ----------------------------------------------------------------------------------
   // create humanoid models
@@ -820,10 +917,11 @@ void Nursing::initPhysics()
         // change humanoid1 start position
         // rootTrans.setOrigin(btVector3(2, -1.5, -0.2));
 #if 1
-        rootTrans.setOrigin(btVector3(1, 0, 0.65)); // BedFrameなしの時
-        // rootTrans.setOrigin(btVector3(1, 0, 1.0)); // BedFrameありの時
-        // rootTrans.setOrigin(btVector3(0, -1.5, 1.5));
-	btQuaternion q; q.setRotation(btVector3(0, -1, 0), SIMD_PI/2);
+        // rootTrans.setOrigin(btVector3(1, 0, 0.65)); // BedFrameなしの時
+        rootTrans.setOrigin(btVector3(1, 0, 1.3)); // BedFrameありの時
+	btQuaternion q; q.setRotation(btVector3(0, -1, 0), SIMD_PI/2); // 仰向け 
+        // rootTrans.setOrigin(btVector3(-1, 0, 1.5)); // BedFrameありの時
+	// btQuaternion q; q.setRotation(btVector3(0, -1, 0), 3*SIMD_PI/2); // うつ伏せ
 	rootTrans.setRotation(q);
 #endif
       }
@@ -879,6 +977,10 @@ void Nursing::initPhysics()
 
           TotalMass += mb->getLinkMass(i);
 
+          btCollisionObject* link_col = btMultiBodyLinkCollider::upcast(mb->getLinkCollider(i));
+          link_col->setCcdSweptSphereRadius(0.00025);
+          link_col->setCcdMotionThreshold(0.001);
+    
 	  if (mb->getLink(mbLinkIndex).m_jointType == btMultibodyLink::eRevolute || mb->getLink(mbLinkIndex).m_jointType == btMultibodyLink::ePrismatic)
 	  {
 	    if (m_data->m_numMotors < MAX_NUM_MOTORS)
@@ -1086,7 +1188,7 @@ void Nursing::DrawMotorForce(btScalar fixedTimeStep)
       // std::string* jointName = new std::string(m_data->m_mb->getLink(i).m_jointName);
       // b3Printf("i = %d : JointName is %s\n", i, jointName->c_str());
       // 下のif文を付けないとsignal6でプログラムが終了する
-      if(m_data->m_jointMotors[i]->getDataSize())
+      // if(m_data->m_jointMotors[i]->getDataSize())
       {
 	motor_force = m_data->m_jointMotors[i]->getAppliedImpulse(0) / fixedTimeStep; 
 	// ----- Draw Constraint Force -----
