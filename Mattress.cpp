@@ -67,11 +67,11 @@ void Mattress::registerModel(Nursing* base)
   psb->translate(btVector3(0, 0, 0.2));
   // psb->setVolumeMass(500);
   // psb->setVolumeMass(3500);
-  psb->setVolumeDensity(45);
+  psb->setVolumeDensity(75);
   // psb->setTotalMass(100);
   base->m_cutting = false;
   // psb->getCollisionShape()->setMargin(0.1);
-  psb->getCollisionShape()->setMargin(0.1);
+  psb->getCollisionShape()->setMargin(0.2);
   psb->m_cfg.collisions = 
     // + btSoftBody::fCollision::CL_SS  
     // + btSoftBody::fCollision::CL_RS  // 衝突をクラスターで計算
@@ -119,29 +119,29 @@ void Mattress::registerModel(Nursing* base)
 
   // append Material
   // btSoftBody::Material* pm = psb->appendMaterial();
-  psb->m_materials[0]->m_kLST = 0.01;
-  psb->m_materials[0]->m_kVST = 0.02;
+  psb->m_materials[0]->m_kLST = 0.4; // 0.01
+  psb->m_materials[0]->m_kVST = 0.4; // 0.02
   // psb->m_materials[0]->m_kAST = 0.3;
-  psb->generateBendingConstraints(3);
+  psb->generateBendingConstraints(2);
   psb->m_cfg.kDF = 1.0; // 動摩擦係数
-  psb->m_cfg.kMT = 0.2; // 元の形状を保とうとする力を働かせる // 0.0
-  psb->m_cfg.kVC = 1.0; // 体積維持係数(体積一定にする力)
+  // psb->m_cfg.kMT = 0.2; // 元の形状を保とうとする力を働かせる // 0.0
+  psb->m_cfg.kVC = 40.0; // 体積維持係数(体積一定にする力)
   // psb->m_cfg.kDP = 1.0; // 速度減衰係数
-  psb->m_cfg.viterations = 10;
-  psb->m_cfg.diterations = 10;
-  psb->m_cfg.piterations = 10;
-  psb->m_cfg.kKHR = 0.1;
-  psb->m_cfg.kCHR = 0.1;
-  // psb->setSpringStiffness(1.01);
-  // btSoftBodyHelpers::generateBoundaryFaces(psb);
+  // psb->m_cfg.viterations = 10;
+  // psb->m_cfg.diterations = 10;
+  psb->m_cfg.piterations = 100;
+  psb->m_cfg.kKHR = 1.;
+  psb->m_cfg.kCHR = 1.;
+  psb->setSpringStiffness(1.01); // 強度が上がる
+  btSoftBodyHelpers::generateBoundaryFaces(psb);
   psb->m_sleepingThreshold = 0;
   
   // psb->m_cfg.kPR = 0.0;    // 0.0; // Pressure coefficient [-inf,+inf](膨張する力)
   psb->setPose(true, false);
 #endif
 
-  psb->setCcdSweptSphereRadius(0.00025);
-  psb->setCcdMotionThreshold(0.001);
+  // psb->setCcdSweptSphereRadius(0.00025);
+  // psb->setCcdMotionThreshold(0.001);
 
   btSoftMultiBodyDynamicsWorld* softWorld = base->getSoftDynamicsWorld();
   
@@ -153,9 +153,11 @@ void Mattress::registerModel(Nursing* base)
   getDeformableDynamicsWorld()->getSolverInfo().m_deformable_maxErrorReduction = btScalar(200);
   */
 
+  /*
   softWorld->getSolverInfo().m_splitImpulse = true;
   softWorld->getSolverInfo().m_leastSquaresResidualThreshold = 1e-5;
   softWorld->getSolverInfo().m_numIterations = 100;
+  */
 
   if(softWorld){
         int collisionFilterGroup = int(btBroadphaseProxy::DefaultFilter);

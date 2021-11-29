@@ -26,6 +26,8 @@
 //#include "LinearMath/btQuickprof.h"
 //#include "LinearMath/btIDebugDraw.h"
 
+#include <ExampleBrowser/OpenGLGuiHelper.h>
+
 // ---------------------------------------
 // include files for create humanoid model
 #include "BulletDynamics/ConstraintSolver/btGeneric6DofSpring2Constraint.h"
@@ -120,6 +122,7 @@ public:
 
   bool DrawContactForceFlag = false;
   bool DrawMotorForceFlag = false;
+  bool DrawSoftForceFlag = true;
 public:
   void initPhysics();
 
@@ -197,6 +200,12 @@ public:
   GUIHelperInterface* getGUIHelper()
   {
     return m_guiHelper;
+  }
+
+
+  OpenGLGuiHelper* getOpenGLGuiHelper()
+  {
+    return (OpenGLGuiHelper*)m_guiHelper;
   }
 
   virtual void renderScene()

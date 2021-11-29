@@ -15,11 +15,16 @@
 
 ///btSoftBody implementation by Nathanael Presson
 
-#define DEBUG_HUMANOID 
-// #define CREATE_SOFTBOX
-// #define CREATE_MULTIBODY_BOX
-#define CREATE_TETRACUBE 
+// #define DEBUG_HUMANOID 
 #define CREATE_CLOTH
+#define CREATE_BED_BOX
+#define CREATE_MULTIBODY_SPHERE
+// #define CREATE_RIGID_SHPERE
+// #define CREATE_SOFTBOX
+// #define CREATE_TETRACUBE 
+#define MAX_CONTACT_FORCE 500 // [N] // humanoidの全質量は約41kgなので
+#define MAX_SOFTBODY_FORCE 0.01
+#define MAX_JOINTMOTOR_TORQUE 400 // [N*m] // 
 
 #include "btBulletDynamicsCommon.h"
 #include "BulletSoftBody/btSoftMultiBodyDynamicsWorld.h" //
@@ -45,7 +50,8 @@
 #include "CommonInterfaces/CommonParameterInterface.h"
 #include "CommonInterfaces/CommonGraphicsAppInterface.h"
 
-#include <ExampleBrowser/OpenGLExampleBrowser.h>
+// #include <ExampleBrowser/OpenGLExampleBrowser.h>
+// #include <ExampleBrowser/OpenGLGuiHelper.h>
 
 // ---------------------------------------
 // using include files
@@ -71,6 +77,9 @@ class btSoftSoftCollisionAlgorithm;
 class btSoftRididCollisionAlgorithm;
 class btSoftMultiBodynamicsWorld;
 
+// broadphaseに使う
+btOverlappingPairCache* m_pairCache = 0;
+
 #include "CommonInterfaces/CommonMultiBodyBase.h"
 
 #include "BedFrame.h"
@@ -82,6 +91,8 @@ extern int glutScreenHeight;
 
 //static bool sDemoMode = false;
 
+// user index
+int UserId = 10;
 const int maxProxies = 32766;
 //const int maxOverlap = 65535;
 
@@ -163,8 +174,8 @@ Nursing::Nursing(struct GUIHelperInterface* helper)
 
     if (gMCFJFileNameArray.size() == 0)
     {
-	  // gMCFJFileNameArray.push_back("./humanoid.xml");
-	  gMCFJFileNameArray.push_back("./humanoid2.xml");
+	  // gMCFJFileNameArray.push_back("./humanoid2.xml");
+	  gMCFJFileNameArray.push_back("./humanoid_SoftTest.xml");
     }
     int numFileNames = gMCFJFileNameArray.size();
 
@@ -336,7 +347,7 @@ static void Ctor_RbUpStack(Nursing* pdemo, int count)
   // btQuaternion orn(SIMD_HALF_PI, 0, 0);
   btQuaternion orn(0, 0, 0);
   // localTransform.setRotation(orn);
-  localTransform.setOrigin(btVector3(1,1,1));
+  localTransform.setOrigin(btVector3(0,0,10));
   cylinderCompound->addChildShape(localTransform, cylinderShape);
 
   btCollisionShape* shape[] = {cylinderCompound,
@@ -365,6 +376,44 @@ static btRigidBody* Ctor_BigPlate(Nursing* pdemo, btScalar mass = 15, btScalar h
   startTransform.setOrigin(btVector3(0, height, 0.5));
   btRigidBody* body = pdemo->createRigidBody(mass, startTransform, new btBoxShape(btVector3(5, 1, 5)));
   body->setFriction(1);
+  return (body);
+}
+
+//
+// Rigid Sphere
+//
+static btRigidBody* createRigidSphere(Nursing* pdemo, btScalar mass = 41.0, btScalar radius = 0.06)
+{
+  btTransform startTransform;
+  startTransform.setIdentity();
+  startTransform.setOrigin(btVector3(0, 0, 1.0));
+  btRigidBody* body = pdemo->createRigidBody(mass, startTransform, new btSphereShape(radius));
+  int collisionFilterGroup = int(btBroadphaseProxy::DefaultFilter);
+  int collisionFilterMask = int(btBroadphaseProxy::AllFilter);
+  // pdemo->m_dynamicsWorld->addRigidBody(body, collisionFilterGroup, collisionFilterMask);
+  return (body);
+}
+
+//
+// Rigid Box
+//
+static btRigidBody* createBedBox(Nursing* pdemo, btScalar mass = 0.0, btScalar base_size = 0.6)
+{
+   // 190:100:40[cm]
+  btScalar width = base_size;
+  btScalar height = base_size * 0.4;
+  btScalar depth = base_size * 1.9;
+  btTransform startTransform;
+  startTransform.setIdentity();
+  startTransform.setOrigin(btVector3(0, 0, height));
+  btRigidBody* body = pdemo->createRigidBody(mass, startTransform, new btBoxShape(btVector3(depth, width, height)));
+  body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
+
+  // int collisionFilterGroup = int(btBroadphaseProxy::StaticFilter);
+  // int collisionFilterMask = int(btBroadphaseProxy::AllFilter ^ btBroadphaseProxy::StaticFilter);
+  int collisionFilterGroup = int(btBroadphaseProxy::DefaultFilter);
+  int collisionFilterMask = int(btBroadphaseProxy::AllFilter);
+  pdemo->m_dynamicsWorld->addRigidBody(body, collisionFilterGroup, collisionFilterMask);
   return (body);
 }
 
@@ -429,34 +478,48 @@ static btSoftBody* TetraCube(Nursing* pdemo, const btVector3& p, const btVector3
 		  TetraCube::getElements(),0,TetraCube::getNodes(),
 		  false, true, true);
 
-  psb->scale(btVector3(s.x()*0.65, s.y()*0.7, s.z()*0.65));
+  psb->scale(btVector3(s.x()*0.65, s.y()*0.75, s.z()*0.7));
   psb->translate(btVector3(p.x(), p.y(), p.z()));
   // psb->setVolumeMass(4500);
-  psb->setVolumeDensity(45);
-  psb->m_cfg.piterations = 50;
-  psb->generateClusters(0);
+  psb->setVolumeDensity(45); // 45
+  psb->m_cfg.piterations = 10; // 200
+  // psb->m_cfg.viterations = 100;
+  // psb->m_cfg.diterations = 100;
+
+  psb->generateClusters(8);
   // psb->m_cfg.kSR_SPLT_CL = 1.0; // Soft vs rigid impulse split (cluster only)
   // psb->m_cfg.citerations = 10;
 
-  psb->getCollisionShape()->setMargin(0.05);
-  psb->m_materials[0]->m_kLST = 0.7;
-  // psb->m_materials[0]->m_kVST = 0.3;
-  psb->m_cfg.kKHR = 1.0;
-  psb->m_cfg.kCHR = 1.0;
+  psb->getCollisionShape()->setMargin(0.01); // 0.13
+  // psb->getCollisionShape()->setMargin(0.05);
+  psb->m_materials[0]->m_kLST = 0.4; // 0.4
+  psb->m_materials[0]->m_kVST = 0.4; // 0.3
+  psb->m_cfg.kKHR = 0.8;
+  psb->m_cfg.kCHR = 0.1;
+  psb->m_cfg.kSSHR_CL = 0.1;
+  psb->m_cfg.kSS_SPLT_CL = 1.;
+  // psb->m_cfg.kDF = 1;
   psb->generateBendingConstraints(2);
-  psb->m_cfg.kMT = 0.5; // 元の形状を保とうとする力を働かせる // 0.0
-  psb->m_cfg.kVC = 40.0; // 体積維持係数(体積一定にする力)
+  // psb->m_cfg.kMT = 0.1; // 元の形状を保とうとする力を働かせる // 0.5
+  // psb->m_cfg.kVC = 1.0; // 体積維持係数(体積一定にする力) // 40.0
   psb->m_sleepingThreshold = 0;
-  psb->setPose(true, false);
-  // pdemo->getSoftDynamicsWorld()->getSolverInfo().m_splitImpulse = false;
-  // pdemo->getSoftDynamicsWorld()->getSolverInfo().m_leastSquaresResidualThreshold = 1e-5;
-  // pdemo->getSoftDynamicsWorld()->getSolverInfo().m_numIterations = 100;
+  // psb->setPose(true, false);
+  pdemo->getSoftDynamicsWorld()->getSolverInfo().m_splitImpulse = false;
+  pdemo->getSoftDynamicsWorld()->getSolverInfo().m_leastSquaresResidualThreshold = 1e-5;
+  pdemo->getSoftDynamicsWorld()->getSolverInfo().m_numIterations = 100;
   psb->m_cfg.collisions = 
 	  // btSoftBody::fCollision::CL_SS + btSoftBody::fCollision::CL_RS;
 	  btSoftBody::fCollision::SDF_RS + btSoftBody::fCollision::CL_SS;
 
   pdemo->getSoftDynamicsWorld()->addSoftBody(psb);
+  // btSoftBodyHelpers::generateBoundaryFaces(psb);
 
+  btCollisionObject* link_col = btSoftBody::upcast(psb);
+  //  link_col->setCcdSweptSphereRadius(0.9);
+  // link_col->setCcdMotionThreshold(0.0001);
+  // btCollisionShape* col_shape = link_col->getCollisionShape();
+  // col_shape->setMargin(0.35);
+  
   return (psb);
 }
 
@@ -466,33 +529,58 @@ static btSoftBody* TetraCube(Nursing* pdemo, const btVector3& p, const btVector3
 // static btSoftBody* Cloth(Nursing* pdemo, const btScalar& s)
 static btSoftBody* Cloth(Nursing* pdemo)
 {
-	btScalar s = 1.0;
+	// btScalar margin = 0.13; // 衝突マージン(上から落とす時)
+	btScalar margin = 0.1; // 衝突マージン // 0.05 or 0.1
+        btScalar Bed_height = 0.24 * 2 + margin;
+	btScalar h = 1.3;
+        btScalar w = 0.8;
         btSoftBody* psb = btSoftBodyHelpers::CreatePatch(
 			pdemo->m_softBodyWorldInfo, 
-			btVector3(-s*2., -s*1.5, 0), btVector3(+s*2., -s*1.5, 0),
-                        btVector3(-s*2., +s*1.5, 0),btVector3(+s*2., +s*1.5, 0),
-                        31, 31, // 31,31,
+			btVector3(-h*1., -w*1., 0), btVector3(+h*1., -w*1., 0),
+                        btVector3(-h*1., +w*1., 0),btVector3(+h*1., +w*1., 0),
+                        41, 41, // 17,17, // 51, 51 // 62, 62
                         0, // 1 + 2 + 4 + 8
 			true);
 
-        psb->getCollisionShape()->setMargin(0.01);
         btSoftBody::Material* pm = psb->appendMaterial();
-        pm->m_kLST = 0.4;
+        psb->m_materials[0]->m_kLST = 0.4; // 0.3 or 0.6
+        // psb->m_materials[0]->m_kAST = 0.4; // 
         pm->m_flags -= btSoftBody::fMaterial::DebugDraw;
-        psb->generateBendingConstraints(2, pm);
-        // psb->setTotalMass(200);
-        psb->setTotalMass(1000.0);
-	psb->translate(btVector3(0, 0, 1));
+        // psb->generateBendingConstraints(2, pm);
+        psb->setTotalMass(15.0); // 15kgぐらいなら布を浮かせていても破れない(RigidSphere時)
+        // psb->setTotalMass(615.0);  // 600 // 1kg 
+        // psb->setVolumeDensity(1);
+	psb->translate(btVector3(0, 0, Bed_height));
 	psb->m_cfg.kDF = 1;
-        psb->m_cfg.kSRHR_CL = 1;
-        psb->m_cfg.kSR_SPLT_CL = 0;
-        psb->m_cfg.collisions = btSoftBody::fCollision::CL_SS + btSoftBody::fCollision::CL_RS;
-        // psb->m_cfg.collisions = btSoftBody::fCollision::CL_SS + btSoftBody::fCollision::SDF_RS;
-        psb->generateBendingConstraints(2, pm);
-	psb->generateClusters(0);
-        psb->getCollisionShape()->setMargin(0.05);
+        psb->m_cfg.kCHR = 0.3; // 0.3
+        psb->m_cfg.kKHR = 0.4; // 0.2
+        // psb->m_cfg.kSRHR_CL = 1;
+        // psb->m_cfg.kSR_SPLT_CL = 0;
+        // psb->m_cfg.kSSHR_CL = 0.1; // 0.3
+        // psb->m_cfg.kSS_SPLT_CL = 1.;
+	// psb->m_cfg.kDP = 0.1;
+	// psb->m_cfg.kLF = 1.0; // 1.0
+	// psb->m_cfg.kDG = 0.0;
+	// psb->m_cfg.kPR = 0.5;
+        // psb->m_cfg.collisions = btSoftBody::fCollision::CL_SS + btSoftBody::fCollision::CL_RS;
+        psb->m_cfg.collisions = btSoftBody::fCollision::CL_SS + btSoftBody::fCollision::SDF_RS; // RigidBodyは布の上にある
+        // psb->generateClusters(8); // 0同士はだめっぽい
+        psb->getCollisionShape()->setMargin(margin); // 0.135 // BedFrameありなら0.08でもいけそう
+        psb->m_sleepingThreshold = 0;
         pdemo->getSoftDynamicsWorld()->addSoftBody(psb);
+        // psb->setCollisionFlags(0);
 
+	// psb->setWindVelocity(btVector3(4.0, 0.0, 0.0));
+	// psb->setSpringStiffness(.1); // 強度が上がる
+
+         psb->m_cfg.piterations = 100;
+         psb->m_cfg.viterations = 100;
+         psb->m_cfg.diterations = 100;
+        // psb->m_cfg.citerations = 100;
+
+        pdemo->getSoftDynamicsWorld()->getSolverInfo().m_splitImpulse = true;
+
+        pdemo->m_cutting = false;
 	return (psb);
 }
 
@@ -584,7 +672,6 @@ void Nursing::autogenerateGraphicsObjects(btDiscreteDynamicsWorld* rbWorld, btVe
     }
     m_guiHelper->createCollisionShapeGraphicsObject(colObj->getCollisionShape());
     int shapeIndex = colObj->getUserIndex();
-    // m_guiHelper->replaceTexture(i, whiteTextureId);
     int colorIndex = colObj->getBroadphaseHandle()->getUid() & 3;
     btVector4 color = rgba;
     // color = sColors[colorIndex];
@@ -593,6 +680,17 @@ void Nursing::autogenerateGraphicsObjects(btDiscreteDynamicsWorld* rbWorld, btVe
     {
       color.setValue(1, 1, 1, 1);
     }
+
+    m_guiHelper->replaceTexture(i, whiteTextureId); // 布のTextureは変わった
+   
+
+    int texWidth = 1024;
+    int texHeight = 1024;
+    btAlignedObjectArray<unsigned char> texels;
+    texels.resize(texWidth * texHeight * 3);
+    for (int i = 0; i < texWidth * texHeight * 3; i++)
+      texels[i] = 255;
+    m_guiHelper->changeTexture(2, &texels[0], texWidth, texHeight);
 
 #if 0
     if(colObj->getCollisionFlags() & btCollisionObject::CF_KINEMATIC_OBJECT)
@@ -609,6 +707,9 @@ btAlignedObjectArray<std::string> MotorJointNames;
 void Nursing::initPhysics()
 {
   ///create concave ground mesh
+
+  // m_guiHelper->m_data->m_checkedTextureGrey = 100;
+  // getOpenGLGuiHelper()->m_data->m_checkedTextureGrey = 100;
 
   // m_guiHelper->setUpAxis(1);
   m_guiHelper->setUpAxis(2);
@@ -695,8 +796,16 @@ void Nursing::initPhysics()
   btVector3 worldAabbMin(-1000, -1000, -1000);
   btVector3 worldAabbMax(1000, 1000, 1000);
 
-  m_broadphase = new btAxisSweep3(worldAabbMin, worldAabbMax, maxProxies);
+  // btVector3 worldAabbMin(-100, -100, -100);
+  // btVector3 worldAabbMax(100, 100, 100);
 
+  m_broadphase = new btAxisSweep3(worldAabbMin, worldAabbMax, maxProxies);
+#if 0 
+  m_filterCallback = new MyOverlapFilterCallback2();
+  m_pairCache = new btHashedOverlappingPairCache();
+  m_pairCache->setOverlapFilterCallback(m_filterCallback);
+  m_broadphase = new btDbvtBroadphase(m_pairCache);  //btSimpleBroadphase();
+#endif
   m_softBodyWorldInfo.m_broadphase = m_broadphase;
 
   // btSequentialImpulseConstraintSolver* solver = new btSequentialImpulseConstraintSolver();
@@ -745,9 +854,15 @@ void Nursing::initPhysics()
   // b3Printf("typeName = %s\n", typeName);
   // -------------------------------------------------
   m_guiHelper->createPhysicsDebugDrawer(m_dynamicsWorld);
-  m_dynamicsWorld->getDebugDrawer()->setDebugMode(btIDebugDraw::DBG_DrawConstraints + btIDebugDraw::DBG_DrawContactPoints + btIDebugDraw::DBG_DrawAabb + btIDebugDraw::DBG_DrawConstraintLimits 
-		  + btIDebugDraw::DBG_DrawWireframe
-		  );
+#if 0
+  m_dynamicsWorld->getDebugDrawer()->setDebugMode(
+      	  btIDebugDraw::DBG_DrawConstraints 
+      	+ btIDebugDraw::DBG_DrawContactPoints 
+	+ btIDebugDraw::DBG_DrawAabb 
+	+ btIDebugDraw::DBG_DrawConstraintLimits 
+	+ btIDebugDraw::DBG_DrawWireframe
+	);
+#endif
 
   m_dynamicsWorld->debugDrawWorld();
   m_dynamicsWorld->setInternalTickCallback(pickingPreTickCallback, this, true);
@@ -809,8 +924,9 @@ void Nursing::initPhysics()
   Cloth(this);
 #endif
 
-#ifdef CREATE_MULTIBODY_BOX  // create MultiBody Box
-  btCollisionShape* childShape = new btSphereShape(btScalar(0.25));
+#ifdef CREATE_MULTIBODY_SPHERE  // create MultiBody Sphere
+  btCollisionShape* childShape = new btSphereShape(btScalar(0.06));
+  childShape->setMargin(0.1);
   // btCollisionShape* childShape = new btBoxShape(btVector3(0.25, 0.25, 0.25));
   // m_guiHelper->createCollisionShapeGraphicsObject(childShape);
 
@@ -821,7 +937,7 @@ void Nursing::initPhysics()
   btMultiBody* pMultiBody = new btMultiBody(0, mass, baseInertiaDiag, false, false);
   btTransform startTrans;
   startTrans.setIdentity();
-  startTrans.setOrigin(btVector3(0, 0, 1.8));
+  startTrans.setOrigin(btVector3(0, 0, 0.7));
   // startTrans.setOrigin(btVector3(0, 0, 1));
 
   pMultiBody->setBaseWorldTransform(startTrans);
@@ -861,6 +977,14 @@ void Nursing::initPhysics()
   // BedFrame::registerModel(this);
   // Mattress::registerModel(this);
 
+#ifdef CREATE_BED_BOX
+  createBedBox(this);
+#endif
+
+#ifdef CREATE_RIGID_SHPERE
+  createRigidSphere(this);
+#endif
+
   // ----------------------------------------------------------------------------------
   // create humanoid models
 #if 0
@@ -897,7 +1021,8 @@ void Nursing::initPhysics()
     btTransform rootTrans;
     rootTrans.setIdentity();
 
-    for (int m = 0; m < importer.getNumModels()-1; m++)
+    // for (int m = 0; m < importer.getNumModels()-1; m++)
+    for (int m = 0; m < importer.getNumModels(); m++)
     {
       importer.activateModel(m);
 
@@ -915,13 +1040,14 @@ void Nursing::initPhysics()
       rootTrans.setIdentity();
       if(m == 1){
         // change humanoid1 start position
-        // rootTrans.setOrigin(btVector3(2, -1.5, -0.2));
+        rootTrans.setOrigin(btVector3(0, -1.5, -0.2));
 #if 1
-        // rootTrans.setOrigin(btVector3(1, 0, 0.65)); // BedFrameなしの時
-        rootTrans.setOrigin(btVector3(1, 0, 1.3)); // BedFrameありの時
+        rootTrans.setOrigin(btVector3(1, 0, 0.7)); // BedFrameなしの時
+        // rootTrans.setOrigin(btVector3(1, 0, 1.3)); // BedFrameありの時
 	btQuaternion q; q.setRotation(btVector3(0, -1, 0), SIMD_PI/2); // 仰向け 
         // rootTrans.setOrigin(btVector3(-1, 0, 1.5)); // BedFrameありの時
 	// btQuaternion q; q.setRotation(btVector3(0, -1, 0), 3*SIMD_PI/2); // うつ伏せ
+	// btQuaternion q; q.setRotation(btVector3(0, 0, 1), SIMD_PI/2); // Bed側を向く
 	rootTrans.setRotation(q);
 #endif
       }
@@ -977,10 +1103,76 @@ void Nursing::initPhysics()
 
           TotalMass += mb->getLinkMass(i);
 
+	  b3Printf("%s\n", linkName->c_str());
+	  b3Printf("	%s\n", jointName->c_str());
+
+
           btCollisionObject* link_col = btMultiBodyLinkCollider::upcast(mb->getLinkCollider(i));
-          link_col->setCcdSweptSphereRadius(0.00025);
-          link_col->setCcdMotionThreshold(0.001);
-    
+	  const btVector3 RGB = btVector3(0, 0, 0);
+	  link_col->setCustomDebugColor(RGB);
+          // link_col->setCcdSweptSphereRadius(0.00025);
+          // link_col->setCcdMotionThreshold(0.001);
+	  btCollisionShape* col_shape = link_col->getCollisionShape();
+
+	  link_col->setCollisionFlags(link_col->getCollisionFlags() | btCollisionObject::CF_CHARACTER_OBJECT);
+
+	  /*
+	  if(col_shape->isConvex())
+	  {
+	    b3Printf("%s is sphere shape\n", linkName->c_str());
+	    btSphereShape* shape = (btSphereShape*)col_shape;
+	    if(shape->getRadius() == 0.04) // 0.02
+	    {
+	      b3Printf("run\n");
+              col_shape->setMargin(0.5);
+	    }
+	  }
+	  */
+	  if(*linkName == "left_lower_arm" || *linkName == "link1_33")
+	  {
+	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
+	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 0, 0, 1));
+	    col_shape->setMargin(1.);
+	    link_col->setCcdSweptSphereRadius(0.5);
+            link_col->setCcdMotionThreshold(0.0001);
+
+	  }
+	  if(*linkName == "right_lower_arm" || *linkName == "link1_28")
+	  {
+	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
+	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 1, 0, 1));
+	    col_shape->setMargin(1.);
+	    // btScalar margin = col_shape->getMargin();
+	    // b3Printf("margin = %f\n", margin);
+	     link_col->setCcdSweptSphereRadius(0.5);
+             link_col->setCcdMotionThreshold(0.0001);
+
+	  }
+	  if(*linkName == "left_upper_arm" || *linkName == "link1_30" || *linkName == "link1_31")
+	  {
+	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
+	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 0, 0, 1));
+	    col_shape->setMargin(1.);
+	  }
+	  if(*linkName == "right_upper_arm" || *linkName == "link1_25" || *linkName == "link1_26")
+	  {
+	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
+	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 0, 0, 1));
+	    col_shape->setMargin(1.);
+	  }
+	  if(*linkName == "left_foot")
+	  {
+	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
+	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 0, 0, 1));
+	    col_shape->setMargin(1.);
+	  }
+	  if(*linkName == "right_foot")
+	  {
+	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
+	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 0, 0, 1));
+	    col_shape->setMargin(1.);
+	  }
+	    
 	  if (mb->getLink(mbLinkIndex).m_jointType == btMultibodyLink::eRevolute || mb->getLink(mbLinkIndex).m_jointType == btMultibodyLink::ePrismatic)
 	  {
 	    if (m_data->m_numMotors < MAX_NUM_MOTORS)
@@ -1009,17 +1201,17 @@ void Nursing::initPhysics()
 	  }
 
           
-#if 0
+#if 1
 	  // change link color
-	  btCollisionObject* col = (btCollisionObject*)mb->getLinkCollider(mbLinkIndex);
-	  int index = col->getUserIndex();
-          const float color[4] = { 1, 1, 1, 1 };
-	  const float orn[4] = { 0, 0, 0, 1 };
-	  const float pos[4] = { 0.0, 0.0, 0.0, 1 };
-	  const float scale = 1.0f;
-	  const float scaling[4] = { scale, scale, scale, 1 };
-	  int renderInstance = m_guiHelper->registerGraphicsInstance(index, pos, orn, color, scaling);
-          col->setUserIndex(renderInstance);
+	  int bodyId = -1;
+	  int linkIndex = i;
+	  int shapeIndex = i;
+          btCollisionObject* col = btMultiBodyLinkCollider::upcast(mb->getLinkCollider(i));
+	  UserId++; 
+          // col->setUserIndex(UserId);
+	  // b3Printf("%d\n", UserId); // default -1
+          const double color[4] = { 0, 0, 0, 1 };
+	  // m_guiHelper->changeRGBAColor(UserId, color);
 #endif
         }
       }
@@ -1083,6 +1275,7 @@ void Nursing::exitPhysics()
   delete m_collisionConfiguration;
 }
 
+btScalar dt = 0;
 // ----------------------------------------------------------------------------------
 // step Simulation
 void Nursing::stepSimulation(float deltaTime)
@@ -1128,26 +1321,32 @@ if (m_dynamicsWorld)
   {
     DrawMotorForce();
   }
-  DrawSoftBodyAppliedForce();
+  if(DrawSoftForceFlag)
+  {
+    DrawSoftBodyAppliedForce();
+  }
 
   //the maximal coordinates/iterative MLCP solver requires a smallish timestep to converge
   m_dynamicsWorld->stepSimulation(deltaTime, 10, fixedTimeStep);
   // m_dynamicsWorld->stepSimulation(deltaTime);
+ 
+  dt = deltaTime;
   }
 }
 // ----------------------------------------------------------------------------------
 
 void Nursing::DrawContactForce(btScalar fixedTimeStep)
-{
+{ // 赤(255, 0, 0)
   int num_manifolds = m_dynamicsWorld->getDispatcher()->getNumManifolds(); // 衝突候補のペアの数
   for(int i = 0; i < num_manifolds; i++)  // 各ペアを調べていく
   {
     // 衝突点を格納するためのキャッシュ(manifold)から情報を取得
     btPersistentManifold* manifold = m_dynamicsWorld->getDispatcher()->getManifoldByIndexInternal(i);
-#if 0
+#if 1
     btCollisionObject* obA = const_cast<btCollisionObject*>(manifold->getBody0()); // 衝突ペアのうちのオブジェクトA
     btCollisionObject* obB = const_cast<btCollisionObject*>(manifold->getBody1()); // 衝突ペアのうちのオブジェクトB
-
+#endif
+#if 0
     // 各オブジェクトのユーザーインデックス
     int user_idx0 = obA->getUserIndex();
     int user_idx1 = obB->getUserIndex();
@@ -1157,27 +1356,35 @@ void Nursing::DrawContactForce(btScalar fixedTimeStep)
 
     int num_contacts = manifold->getNumContacts(); // オブジェクト間の衝突点数
     btScalar pointSize = 20;
-    for(int j = 0; j < num_contacts; ++j){
-      btManifoldPoint& pt = manifold->getContactPoint(j); // 衝突点キャッシュから衝突点座標を取得
-      // if(pt.getDistance() <= 0.0f)  // 衝突点間の距離がゼロ以下なら実際に衝突している
+    int flag = btCollisionObject::CF_KINEMATIC_OBJECT | btCollisionObject::CF_STATIC_OBJECT;
+    int obs_flag = obA->getCollisionFlags() | obB->getCollisionFlags();
+    if(!(obs_flag & flag))
+    {
+      for(int j = 0; j < num_contacts; ++j)
       {
-	const btVector3& ptA = pt.getPositionWorldOnA();
-	const btVector3& ptB = pt.getPositionWorldOnB();
-	btScalar contact_force = pt.getAppliedImpulse();
-	b3Printf("contact force = %f\n", contact_force);        
-	b3Printf("contact force = %f\n", contact_force/fixedTimeStep);  
-	b3Printf("contact point = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());   
-	// b3Printf("contact pointA = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());       
-	// b3Printf("contact pointB = %f, %f, %f\n", ptB.getX(), ptB.getY(), ptB.getZ());       
-	btVector3 color2 = btVector3(0, 0, contact_force*2);
-	m_guiHelper->getRenderInterface()->drawPoint(ptA, color2, pointSize);
+	btManifoldPoint& pt = manifold->getContactPoint(j); // 衝突点キャッシュから衝突点座標を取得
+	if(pt.getDistance() <= 0.0f)  // 衝突点間の距離がゼロ以下なら実際に衝突している
+	{
+	  const btVector3& ptA = pt.getPositionWorldOnA();
+	  const btVector3& ptB = pt.getPositionWorldOnB();
+	  btScalar contact_force = pt.getAppliedImpulse();
+	  btScalar contact_force2 = contact_force / fixedTimeStep;
+	  b3Printf("contact force = %f, %f(imp*dt)\n", contact_force, contact_force2); 
+	  // b3Printf("contact point = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());   
+	  // b3Printf("contact pointA = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());       
+	  // b3Printf("contact pointB = %f, %f, %f\n", ptB.getX(), ptB.getY(), ptB.getZ());       
+	  // btScalar step = 10; // デジタル的方法：10[N]ごとに赤色に近づく(Maxは500[N])
+	  btScalar delta_color = contact_force2 / MAX_CONTACT_FORCE;
+	  btVector3 color2 = btVector3(1, 1-delta_color, 1-delta_color); 
+	  m_guiHelper->getRenderInterface()->drawPoint(ptA, color2, pointSize);
+	}
       }
     }
   }
 }
 
 void Nursing::DrawMotorForce(btScalar fixedTimeStep)
-{
+{ // 紫(255,0,255)
   for(int i = 0; i < m_data->m_numMotors; i++)
   {
     // b3Printf("m_numMotors = %d\n", m_data->m_numMotors);
@@ -1191,8 +1398,6 @@ void Nursing::DrawMotorForce(btScalar fixedTimeStep)
       // if(m_data->m_jointMotors[i]->getDataSize())
       {
 	motor_force = m_data->m_jointMotors[i]->getAppliedImpulse(0) / fixedTimeStep; 
-	// ----- Draw Constraint Force -----
-	btVector3 color = btVector3(motor_force/10, 0, 0);
 
 	btTransform tr;
 	if(MotorJointNames[i] == std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkA()).m_jointName)){
@@ -1212,50 +1417,214 @@ void Nursing::DrawMotorForce(btScalar fixedTimeStep)
 	  b3Printf("jointName = %s\n", JointBName->c_str());
 	}
 	btVector3 pos = tr.getOrigin();
-	btScalar pointSize = 20;
-	b3Printf("	motor applied force = %f\n", motor_force);
+	btScalar pointSize = 15;
+	btScalar delta_color = motor_force / MAX_JOINTMOTOR_TORQUE;
+	btVector3 color = btVector3(1, 1-delta_color, 1);
+	b3Printf("	joint torque = %f\n", motor_force);
 	m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
       }
     }
   }
 }
 
+btScalar max_impulse = 0;
+btScalar max_total_impulse = 0;
 #if 1
 void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
-{
-  int num_manifolds = m_dynamicsWorld->getDispatcher()->getNumManifolds(); // 衝突候補のペアの数
-  for(int i = 0; i < num_manifolds; i++)  // 各ペアを調べていく
-  {
-    // 衝突点を格納するためのキャッシュ(manifold)から情報を取得
-    btPersistentManifold* manifold = m_dynamicsWorld->getDispatcher()->getManifoldByIndexInternal(i);
+{ // 黃(255, 255, 0)
+  btSoftMultiBodyDynamicsWorld* softWorld = getSoftDynamicsWorld();
+
+  btScalar total_f = 0;
+  btScalar total_ima = 0;
+  btScalar pointSize = 15;
+  btVector3 pos = btVector3(0, 0, 0);
 #if 1
-    btCollisionObject* obA = const_cast<btCollisionObject*>(manifold->getBody0()); // 衝突ペアのうちのオブジェクトA
-    btCollisionObject* obB = const_cast<btCollisionObject*>(manifold->getBody1()); // 衝突ペアのうちのオブジェクトB
-    int obAType = obA->getInternalType();
-    int obBType = obB->getInternalType();
+  if(softWorld)
+  {
+    for (int i = 0; i < softWorld->getSoftBodyArray().size(); i++)
+    {
+      btSoftBody* psb = (btSoftBody*)softWorld->getSoftBodyArray()[i];
+      btSoftBody::Node* n = 0;
+      btCollisionObject* col_obj = 0;
+      btSoftBody::RContact rcontact;
+      if(psb)
+      {
+        int rcontact_node_size = psb->m_rcontacts.size();
+	btCollisionObject* col_ob = 0;
+	int flag = btCollisionObject::CF_KINEMATIC_OBJECT | btCollisionObject::CF_STATIC_OBJECT;
+	for(int j = 0; j < rcontact_node_size; j++)
+	{
+	  rcontact = psb->m_rcontacts[j];
+	  col_obj = const_cast<btCollisionObject*>(rcontact.m_cti.m_colObj);
+	  btVector3 bary = rcontact.m_cti.m_bary;
+	  if(!(col_obj->getCollisionFlags() & flag))
+	  {
+	    n = rcontact.m_node;
+	    pos = n->m_x;
+	    // btScalar delta_color = / MAX_SOFTBODY_FORCE;
+            btVector3 color = btVector3(1, 1, 0);
+	    btVector3 f = n->m_f;
+	    total_f += f.length();
+	    btScalar im = n->m_im;
+	    btScalar c2 = rcontact.m_c2;
+	    btVector3 vel = n->m_v;
+	    btVector3 delta = rcontact.t2 - rcontact.t1;
+	    total_ima += c2;
+	    // b3Printf("m_x(node position) = %f, %f, %f\n", pos.x(), pos.y(), pos.z());
+	    // b3Printf("m_f(node force accumulator) = %f, %f, %f length = %f\n", f.x(), f.y(), f.z(), f.length()); // 0.0
+	    // b3Printf("m_im(node invers mass) = %f\n", im);
+	    // b3Printf("m_bary(Barycentric weights for faces) = %f, %f, %f length = %f\n", bary.x(), bary.y(), bary.z(), bary.length()); // 0.0
+	    // b3Printf("m_c2(ima*dt) = %f\n", c2); // 全ノードで一定(7.225001) 剛体の重さを変えても変わらなかった
+	    // b3Printf("m_c2(ima*dt) = %f\n", c2/dt); 
+	    // b3Printf("m_v(node velocity) = %f, %f, %f length = %f\n", vel.x(), vel.y(), vel.z(), vel.length()); // 
+	    // b3Printf("delta impuse(t2-t1) = %f, %f, %f length = %f\n", delta.x(), delta.y(), delta.z(), delta.length()); // 
+	    // b3Printf("softbody force = %f\n", psb_force);
+	    // m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
+	  }
+	}
+#if 0
+	if(total_f)
+	  b3Printf("total_f = %f\n", total_f);
+	if(total_ima)
+	{
+	  b3Printf("total_ima = %f\n", total_ima);
+	  b3Printf("inv_total_ima = %f\n", 1/total_ima);
+	  b3Printf("total_ima(/dt) = %f\n", total_ima/dt);
+	  b3Printf("inv_total_ima(/dt) = %f\n", 1/total_ima/dt);
+	}
+#endif
+      }
+    }
+  }
 #endif
 
-    if((obAType == btCollisionObject::CO_SOFT_BODY ) || (obBType == btCollisionObject::CO_SOFT_BODY ))
+
+  btScalar kst = 1;
+  // btScalar ti = isolve / (btScalar)m_cfg.piterations; isolve:0 ~ (piterations-1)
+  // btSoftBody::Impulse impulse;
+
+  if(softWorld)
+  {
+    for (int i = 0; i < softWorld->getSoftBodyArray().size(); i++)
     {
-      b3Printf("Draw SoftBody Force\n");
-      int num_contacts = manifold->getNumContacts(); // オブジェクト間の衝突点数
-      btScalar pointSize = 20;
-      for(int j = 0; j < num_contacts; ++j){
-	btManifoldPoint& pt = manifold->getContactPoint(j); // 衝突点キャッシュから衝突点座標を取得
-	// if(pt.getDistance() <= 0.0f)  // 衝突点間の距離がゼロ以下なら実際に衝突している
+      btSoftBody* psb = (btSoftBody*)softWorld->getSoftBodyArray()[i];
+      BT_PROFILE("PSolve_RContacts");
+      const btScalar dt = psb->m_sst.sdt;
+      const btScalar mrg = psb->getCollisionShape()->getMargin();
+      btMultiBodyJacobianData jacobianData;
+      btScalar total_impulse = 0;
+      for (int i = 0, ni = psb->m_rcontacts.size(); i < ni; ++i)
+      {
+	const btSoftBody::RContact& c = psb->m_rcontacts[i];
+	const btSoftBody::sCti& cti = c.m_cti;
+	if (cti.m_colObj->hasContactResponse())
 	{
-	  const btVector3& ptA = pt.getPositionWorldOnA();
-	  const btVector3& ptB = pt.getPositionWorldOnB();
-	  btScalar contact_force = pt.getAppliedImpulse();
-	  b3Printf("contact force = %f\n", contact_force);        
-	  b3Printf("contact force = %f\n", contact_force/fixedTimeStep);  
-	  b3Printf("contact point = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());   
-	  // b3Printf("contact pointA = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());       
-	  // b3Printf("contact pointB = %f, %f, %f\n", ptB.getX(), ptB.getY(), ptB.getZ());       
-	  btVector3 color2 = btVector3(0, 0, contact_force*2);
-	  m_guiHelper->getRenderInterface()->drawPoint(ptA, color2, pointSize);
-	}
+	  btVector3 va(0, 0, 0);
+	  btRigidBody* rigidCol = 0;
+	  btMultiBodyLinkCollider* multibodyLinkCol = 0;
+	  btScalar* deltaV;
+
+	  int flag = btCollisionObject::CO_RIGID_BODY | btCollisionObject::CO_RIGID_BODY;
+	  if (cti.m_colObj->getInternalType() & flag)
+	  {
+	    rigidCol = (btRigidBody*)btRigidBody::upcast(cti.m_colObj);
+	    va = rigidCol ? rigidCol->getVelocityInLocalPoint(c.m_c1) * dt : btVector3(0, 0, 0);
+	  }
+	  else if (cti.m_colObj->getInternalType() == btCollisionObject::CO_FEATHERSTONE_LINK)
+	  {
+	    multibodyLinkCol = (btMultiBodyLinkCollider*)btMultiBodyLinkCollider::upcast(cti.m_colObj);
+	    if (multibodyLinkCol)
+	    {
+	      const int ndof = multibodyLinkCol->m_multiBody->getNumDofs() + 6;
+	      jacobianData.m_jacobians.resize(ndof);
+	      jacobianData.m_deltaVelocitiesUnitImpulse.resize(ndof);
+	      btScalar* jac = &jacobianData.m_jacobians[0];
+
+	      multibodyLinkCol->m_multiBody->fillContactJacobianMultiDof(multibodyLinkCol->m_link, c.m_node->m_x, cti.m_normal, jac, jacobianData.scratch_r, jacobianData.scratch_v, jacobianData.scratch_m);
+	      deltaV = &jacobianData.m_deltaVelocitiesUnitImpulse[0];
+	      multibodyLinkCol->m_multiBody->calcAccelerationDeltasMultiDof(&jacobianData.m_jacobians[0], deltaV, jacobianData.scratch_r, jacobianData.scratch_v);
+
+	      btScalar vel = 0.0;
+	      for (int j = 0; j < ndof; ++j)
+	      {
+		vel += multibodyLinkCol->m_multiBody->getVelocityVector()[j] * jac[j];
+	      }
+	      va = cti.m_normal * vel * dt;
+	    }
+	  }
+
+	  const btVector3 vb = c.m_node->m_x - c.m_node->m_q;
+	  const btVector3 vr = vb - va;
+	  const btScalar dn = btDot(vr, cti.m_normal);
+	  if (dn <= SIMD_EPSILON)
+	  {
+	    const btScalar dp = btMin((btDot(c.m_node->m_x, cti.m_normal) + cti.m_offset), mrg);
+	    const btVector3 fv = vr - (cti.m_normal * dn);
+	    // c0 is the impulse matrix, c3 is 1 - the friction coefficient or 0, c4 is the contact hardness coefficient
+	    const btVector3 impulse = c.m_c0 * ((vr - (fv * c.m_c3) + (cti.m_normal * (dp * c.m_c4))) * kst);
+	    c.m_node->m_x -= impulse * c.m_c2;
+	    if (cti.m_colObj->getInternalType() == btCollisionObject::CO_RIGID_BODY && 
+		!(cti.m_colObj->getCollisionFlags() & btCollisionObject::CF_KINEMATIC_OBJECT))
+	    {
+	      if (rigidCol)
+	      {
+		rigidCol->applyImpulse(impulse, c.m_c1);
+		btScalar pointSize = 20;
+		// btVector3 pos = c.m_c1;
+		btVector3 pos = c.m_node->m_x;
+		btVector3 color = btVector3(1, 1, 0);
+		if(impulse.length() > 0.0001)
+		{
+		  b3Printf("impulse = %f, %f, %f length = %f\n", impulse.x(), impulse.y(), impulse.z(), impulse.length()); 
+	          // b3Printf("m_x2(node position) = %f, %f, %f\n", c.m_node->m_x.x(), c.m_node->m_x.y(), c.m_node->m_x.z());
+		  m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
+		  total_impulse += impulse.length();
+		  if(max_impulse < impulse.length())
+		  {
+		    max_impulse = impulse.length();
+		  }
+		}
+	      }
+	    }
+	    else if (cti.m_colObj->getInternalType() == btCollisionObject::CO_FEATHERSTONE_LINK)
+	    {
+	      if (multibodyLinkCol)
+	      {
+		double multiplier = 0.5;
+		multibodyLinkCol->m_multiBody->applyDeltaVeeMultiDof(deltaV, -impulse.length() * multiplier);
+
+
+		btScalar pointSize = 20;
+		// btVector3 pos = c.m_c1;
+		btVector3 pos = c.m_node->m_x;
+		btScalar delta_color = impulse.length() / MAX_SOFTBODY_FORCE; 
+		btVector3 color = btVector3(1, 1, 1-delta_color);
+		// b3Printf("deltaV = %f, %f, %f length = %f\n", deltaV.x(), deltaV.y(), deltaV.z());
+		// if(impulse.length())
+		{
+	          // b3Printf("m_x2(node position) = %f, %f, %f\n", c.m_node->m_x.x(), c.m_node->m_x.y(), c.m_node->m_x.z()); // 衝突Nodeの位置
+	          // b3Printf("c.m_c1 = %f, %f, %f\n",c.m_c1.x(), c.m_c1.y(), c.m_c1.z()); // Anchorの位置を返す
+		  b3Printf("deltaV = %f, %f, %f length = %f\n", deltaV[0], deltaV[1], deltaV[2]);
+		  b3Printf("impulse*pliter = %f\n", -impulse.length() * multiplier);
+		  b3Printf("impulse = %f, %f, %f length = %f\n", impulse.x(), impulse.y(), impulse.z(), impulse.length()); 
+		  m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
+		  if(max_impulse < impulse.length())
+		  {
+		    max_impulse = impulse.length();
+		  }
+		}
+	      }
+	    }
+	  }
+        }
       }
+      if(max_total_impulse < total_impulse)
+      {
+	max_total_impulse = total_impulse;
+      }
+      b3Printf("total_impulse = %f\n", total_impulse);
+      b3Printf("max_impulse = %f\n", max_impulse);
+      b3Printf("max_total_impulse = %f\n", max_total_impulse);
     }
   }
 }

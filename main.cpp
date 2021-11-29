@@ -62,8 +62,11 @@ subject to the following restrictions:
 
 #include <SharedMemory/SharedMemoryPublic.h>
 
+// #include <ExampleBrowser/GwenGUISupport/GwenParameterInterface.h>
+
 CommonExampleInterface* example;
 Nursing* nursing = 0;
+// static CommonParameterInterface* s_parameterInterface = 0;
 
 int gSharedMemoryKey = -1;
 static SharedMemoryInterface* sSharedMem = 0;
@@ -99,6 +102,7 @@ static bool gEnableDefaultKeyboardShortcuts = true;
 static bool gEnableRenderLoop = true;
 bool visualWireframe = false;
 int gDebugDrawFlags = 0;
+static bool pauseSimulation = false;
 
 static void OnKeyboardCallback(int key, int state)
 {
@@ -148,11 +152,21 @@ static void OnKeyboardCallback(int key, int state)
   {
     renderVisualGeometry = !renderVisualGeometry;
   }
-  if(key == 'f' && state){
+  if (key == 'i' && state)
+  {
+    pauseSimulation = !pauseSimulation;
+  }
+  if(key == 'c' && state)
+  {
     nursing->DrawContactForceFlag = !(nursing->DrawContactForceFlag);
   }
-  if(key == 't' && state){
+  if(key == 'j' && state)
+  {
     nursing->DrawMotorForceFlag = !(nursing->DrawMotorForceFlag);
+  }
+  if(key == 's' && state)
+  {
+    nursing->DrawSoftForceFlag = !(nursing->DrawSoftForceFlag);
   }
 }
 
@@ -217,6 +231,11 @@ int main(int argc, char* argv[])
   //LessDummyGuiHelper gui(app);
   //DummyGUIHelper gui;
   
+  {
+    // s_parameterInterface = app->m_parameterInterface = new GwenParameterInterface(gui2->getInternalData());
+    // app->m_2dCanvasInterface = new QuickCanvas(myTexLoader);
+  }
+
   CommonExampleOptions options(&gui);
   options.m_sharedMem = sSharedMem;
   
@@ -252,6 +271,8 @@ int main(int argc, char* argv[])
     } while (!app->m_window->requestedExit());
   
   example->exitPhysics();
+  // delete s_parameterInterface;
+  // s_parameterInterface = 0;
   delete example;
   delete nursing;
   delete app;
