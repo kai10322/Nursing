@@ -146,7 +146,7 @@ public:
     float targetPos[3] = {2 - 1, 0};
 #endif
 #if 1	// MJCF Camera Setting
-    float dist = 4.0;
+    float dist = 3.0;
     float pitch = -28;
     float yaw = 50;
     float targetPos[3] = {0.47, 0, -0.64};
@@ -231,6 +231,8 @@ public:
   void DrawContactForce(btScalar fixedTimeStep = 1. / 60.f);
   void DrawMotorForce(btScalar fixedTimeStep = 1. / 60.f);
   void DrawSoftBodyAppliedForce(btScalar fixedTimeStep = 1. / 60.f);
+
+  void SetPose(std::string pos_file_name);
 };
 
 class CommonExampleInterface* NursingCreateFunc(struct CommonExampleOptions& options);
