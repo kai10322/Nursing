@@ -17,13 +17,14 @@
 
 #define DEBUG_HUMANOID 
 #define CREATE_CLOTH
-#define CREATE_BED_BOX
+// #define CREATE_BED_BOX
 // #define CREATE_MULTIBODY_SPHERE
-// #define CREATE_RIGID_SHPERE
+#define CREATE_RIGID_SHPERE
 // #define CREATE_SOFTBOX
 // #define CREATE_TETRACUBE 
 #define MAX_CONTACT_FORCE 500 // [N] // humanoidの全質量は約41kgなので
-#define MAX_SOFTBODY_FORCE 0.01
+#define MAX_SOFTBODY_IMPULSE 0.01 // [N*s(TimeStep)]
+#define MAX_SOFTBODY_FORCE 0.5 // [N] // 2.4, 0.8
 #define MAX_JOINTMOTOR_TORQUE 400 // [N*m] // 
 
 #include "btBulletDynamicsCommon.h"
@@ -390,16 +391,19 @@ static btRigidBody* createRigidSphere(Nursing* pdemo, btScalar mass = 1.0, btSca
   btRigidBody* body = pdemo->createRigidBody(mass, startTransform, new btSphereShape(radius));
   int collisionFilterGroup = int(btBroadphaseProxy::DefaultFilter);
   int collisionFilterMask = int(btBroadphaseProxy::AllFilter);
-  // pdemo->m_dynamicsWorld->addRigidBody(body, collisionFilterGroup, collisionFilterMask);
+  pdemo->m_dynamicsWorld->addRigidBody(body, collisionFilterGroup, collisionFilterMask);
   return (body);
 }
 
 //
-// Rigid Box
+// Rigid Bed Box
 //
 static btRigidBody* createBedBox(Nursing* pdemo, btScalar mass = 0.0, btScalar base_size = 0.6)
 {
-   // 190:100:40[cm]
+  //
+  // 	Create Rigid Mattress	//
+  //
+  // 190:100:40[cm]
   btScalar width = base_size;
   btScalar height = base_size * 0.4;
   btScalar depth = base_size * 1.9;
@@ -417,6 +421,145 @@ static btRigidBody* createBedBox(Nursing* pdemo, btScalar mass = 0.0, btScalar b
   return (body);
 }
 
+//
+// Cretate Compound Bed 
+//
+static btRigidBody* createCompoundBed(Nursing* pdemo, btScalar mass = 0.0, btScalar base_size = 0.6)
+{
+  btCompoundShape* BedShape = new btCompoundShape();
+  // btScalar curve_radius = 0.05;
+  btScalar margin = 0.05;
+ 
+  //
+  // 	Create Mattress	Shape	//
+  //
+  //	Create Main Body	//
+  // 190:100:40[cm]
+  btScalar width = base_size - (margin/2);
+  btScalar height = base_size * 0.4;
+  // btScalar height = base_size * 0.3;
+  btScalar depth = base_size * 1.9 - (margin/2);
+  btTransform trans;
+  trans.setIdentity();
+  trans.setOrigin(btVector3(0, 0, height));
+  btBoxShape* mainShape = new btBoxShape(btVector3(depth, width, height));
+  BedShape->addChildShape(trans, mainShape);
+  
+
+  // 	Create Edge Shape	//
+  btScalar edge_radius = margin;
+  btScalar edge_height1 = 2 * width; // ベッドの短辺
+  btScalar edge_height2 = 2 * depth; // ベッドの長辺
+  // Edge1
+  trans.setIdentity();
+  trans.setOrigin(btVector3(depth, 0, height*2 - margin));
+  btCapsuleShape* edge1 = new btCapsuleShape(edge_radius, edge_height1);
+  BedShape->addChildShape(trans, edge1);
+  // Edge2
+  trans.setIdentity();
+  trans.setOrigin(btVector3(-depth, 0, height*2 - margin));
+  btCapsuleShape* edge2 = new btCapsuleShape(edge_radius, edge_height1);
+  BedShape->addChildShape(trans, edge2);
+  // Edge3
+  trans.setIdentity();
+  trans.setOrigin(btVector3(0, width, height*2 - margin));
+  btCapsuleShapeX* edge3 = new btCapsuleShapeX(edge_radius, edge_height2);
+  BedShape->addChildShape(trans, edge3);
+  // Edge4
+  trans.setIdentity();
+  trans.setOrigin(btVector3(0, -width, height*2 - margin));
+  btCapsuleShapeX* edge4 = new btCapsuleShapeX(edge_radius, edge_height2);
+  BedShape->addChildShape(trans, edge4);
+
+#if 0
+  // 	Create Corner Shape	//
+  btScalar corner_radius = margin;
+  btSphereShape* corner = new btSphereShape(corner_radius);
+  // Corner1	
+  trans.setIdentity();
+  trans.setOrigin(btVector3(depth - corner_radius, width - corner_radius, height*2));
+  BedShape->addChildShape(trans, corner);
+  // Corner2	
+  trans.setOrigin(btVector3(0, -(width - margin), height*2));
+  // BedShape->addChildShape(trans, edge);
+  // Corner3	
+  trans.setOrigin(btVector3(0, depth - margin, height*2));
+  // BedShape->addChildShape(trans, edge);
+  // Corner4	 
+  trans.setOrigin(btVector3(0, -(depth + margin), height*2));
+  // BedShape->addChildShape(trans, edge);
+#endif
+
+  // 
+  // 	Create Face Shape	//
+  //
+  btScalar face_z = height - (margin/2); 
+  // 	短辺側	 //
+  // Face1
+  btScalar face_depth = margin / 2; 
+  btScalar face_width = width; 
+  btScalar face_height = height - (margin/2);
+  trans.setIdentity();
+  trans.setOrigin(btVector3(depth + (margin/2), 0, face_z));
+  btBoxShape* FaceShape1 = new btBoxShape(btVector3(face_depth, face_width, face_height));
+  BedShape->addChildShape(trans, FaceShape1);
+  // Face2
+  trans.setIdentity();
+  trans.setOrigin(btVector3(-(depth + (margin/2)), 0, face_z));
+  BedShape->addChildShape(trans, FaceShape1);
+  // 	長辺側	  //
+  // Face3
+  face_depth = depth; 
+  face_width = margin/2; 
+  trans.setIdentity();
+  trans.setOrigin(btVector3(0, width + (margin/2), face_z));
+  btBoxShape* FaceShape3 = new btBoxShape(btVector3(face_depth, face_width, face_height));
+  BedShape->addChildShape(trans, FaceShape3);
+  // Face4
+  trans.setIdentity();
+  trans.setOrigin(btVector3(0, -(width + (margin/2)), face_z));
+  BedShape->addChildShape(trans, FaceShape3);
+
+  //	Create Bed Leg	//
+  btScalar leg_radius = margin;
+  btScalar Ground_Height = 0.2;
+  btScalar leg_height = height + (Ground_Height/2);
+  btCylinderShapeZ *leg = new btCylinderShapeZ(btVector3(leg_radius, leg_radius, leg_height));
+  btScalar e = 0.00;
+  btScalar leg_z = height - (Ground_Height/2) - margin;
+  // leg1
+  trans.setIdentity();
+  trans.setOrigin(btVector3(depth, width, leg_z));
+  BedShape->addChildShape(trans, leg);
+  // leg2
+  trans.setIdentity();
+  trans.setOrigin(btVector3(-depth, width, leg_z));
+  BedShape->addChildShape(trans, leg);
+  // leg3
+  trans.setIdentity();
+  trans.setOrigin(btVector3(depth, -width, leg_z));
+  BedShape->addChildShape(trans, leg);
+  // leg4
+  trans.setIdentity();
+  trans.setOrigin(btVector3(-depth, -width, leg_z));
+  BedShape->addChildShape(trans, leg);
+
+  // 	Create Compound Shape 	//
+  btScalar body_base = height;
+
+  btTransform startTransform;
+  startTransform.setIdentity();
+  startTransform.setOrigin(btVector3(0, 0, body_base));
+  btRigidBody* BedBody = pdemo->createRigidBody(mass, startTransform, BedShape);
+  BedBody->setCollisionFlags(BedBody->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
+
+  // int collisionFilterGroup = int(btBroadphaseProxy::StaticFilter);
+  // int collisionFilterMask = int(btBroadphaseProxy::AllFilter ^ btBroadphaseProxy::StaticFilter);
+  int collisionFilterGroup = int(btBroadphaseProxy::DefaultFilter);
+  int collisionFilterMask = int(btBroadphaseProxy::AllFilter);
+  pdemo->m_dynamicsWorld->addRigidBody(BedBody, collisionFilterGroup, collisionFilterMask);
+  return (BedBody);
+}
 //
 // Softbox
 //
@@ -530,30 +673,30 @@ static btSoftBody* TetraCube(Nursing* pdemo, const btVector3& p, const btVector3
 static btSoftBody* Cloth(Nursing* pdemo)
 {
 	// btScalar margin = 0.13; // 衝突マージン(上から落とす時)
-	btScalar margin = 0.05; // 衝突マージン // 0.05 or 0.1
-        btScalar Bed_height = 0.24 * 2 + margin;
-	btScalar h = 1.3;
-        btScalar w = 0.8;
+	btScalar margin = 0.07; // 衝突マージン // 0.05 or 0.1
+        btScalar Bed_height = 0.24 * 2 + margin*2 + 0.2; // Bed Height : 0.24*2, Ground Height : 0.2
+	btScalar h = 1.5;
+        btScalar w = 1.0;
         btSoftBody* psb = btSoftBodyHelpers::CreatePatch(
 			pdemo->m_softBodyWorldInfo, 
 			btVector3(-h*1., -w*1., 0), btVector3(+h*1., -w*1., 0),
                         btVector3(-h*1., +w*1., 0),btVector3(+h*1., +w*1., 0),
-                        41, 41, // 17,17, // 51, 51 // 62, 62
+                        51, 51, // 17,17, // 51, 51 // 62, 62
                         0, // 1 + 2 + 4 + 8
 			true);
 
         btSoftBody::Material* pm = psb->appendMaterial();
-        psb->m_materials[0]->m_kLST = 0.4; // 0.3 or 0.6
+        psb->m_materials[0]->m_kLST = 0.3; // 0.3 or 0.6
         // psb->m_materials[0]->m_kAST = 0.4; // 
         pm->m_flags -= btSoftBody::fMaterial::DebugDraw;
         // psb->generateBendingConstraints(2, pm);
-        psb->setTotalMass(20.0); // 15kgぐらいなら布を浮かせていても破れない(RigidSphere時)
+        psb->setTotalMass(10.0); // 15kgぐらいなら布を浮かせていても破れない(RigidSphere時)
         // psb->setTotalMass(615.0);  // 600 // 1kg 
         // psb->setVolumeDensity(1);
 	psb->translate(btVector3(0, 0, Bed_height));
 	psb->m_cfg.kDF = 1;
-        psb->m_cfg.kCHR = 0.4; // 0.3
-        psb->m_cfg.kKHR = 0.4; // 0.2
+        psb->m_cfg.kCHR = 0.3; // 0.3
+        psb->m_cfg.kKHR = 0.3; // 0.2
         // psb->m_cfg.kSRHR_CL = 1;
         // psb->m_cfg.kSR_SPLT_CL = 0;
         // psb->m_cfg.kSSHR_CL = 0.1; // 0.3
@@ -930,14 +1073,14 @@ void Nursing::initPhysics()
   // btCollisionShape* childShape = new btBoxShape(btVector3(0.25, 0.25, 0.25));
   // m_guiHelper->createCollisionShapeGraphicsObject(childShape);
 
-  btScalar mass = 41.f;
+  btScalar mass = 10.f;
   btVector3 baseInertiaDiag;
   bool isFixed = (mass == 0.0);
   childShape->calculateLocalInertia(mass, baseInertiaDiag);
   btMultiBody* pMultiBody = new btMultiBody(0, mass, baseInertiaDiag, false, false);
   btTransform startTrans;
   startTrans.setIdentity();
-  startTrans.setOrigin(btVector3(0, 0, 0.7));
+  startTrans.setOrigin(btVector3(0, 0, 0.8));
   // startTrans.setOrigin(btVector3(0, 0, 1));
 
   pMultiBody->setBaseWorldTransform(startTrans);
@@ -981,8 +1124,11 @@ void Nursing::initPhysics()
   createBedBox(this);
 #endif
 
+  createCompoundBed(this);
+
 #ifdef CREATE_RIGID_SHPERE
-  createRigidSphere(this);
+  createRigidSphere(this, 20.f);
+  // createRigidSphere(this, 0.1);
 #endif
 
   // ----------------------------------------------------------------------------------
@@ -1042,7 +1188,7 @@ void Nursing::initPhysics()
         // change humanoid1 start position
         // rootTrans.setOrigin(btVector3(0, -1.5, -0.2));
 #if 1
-        rootTrans.setOrigin(btVector3(1, 0, 0.7)); // BedFrameなしの時
+        rootTrans.setOrigin(btVector3(1, 0, 0.9)); // BedFrameなしの時
         // rootTrans.setOrigin(btVector3(1, 0, 1.3)); // BedFrameありの時
 	btQuaternion q; q.setRotation(btVector3(0, -1, 0), SIMD_PI/2); // 仰向け 
         // rootTrans.setOrigin(btVector3(-1, 0, 1.5)); // BedFrameありの時
@@ -1432,6 +1578,8 @@ void Nursing::DrawMotorForce(btScalar fixedTimeStep)
 
 btScalar max_impulse = 0;
 btScalar max_total_impulse = 0;
+btScalar max_force = 0;
+btScalar max_total_force = 0;
 #if 1
 void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 { // 黃(255, 255, 0)
@@ -1589,6 +1737,9 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 		  if(max_impulse < impulse.length())
 		  {
 		    max_impulse = impulse.length();
+                    b3Printf("max_impulse = %f[N*s = kg*m/s]\n", max_impulse);
+		    max_force = max_impulse / fixedTimeStep;
+                    b3Printf("Force(max_impulse/timeStep) = %f[N*s/s = N]\n", max_force);
 		  }
 		}
 	      }
@@ -1603,10 +1754,12 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 		btTransform Col_trans = btMultiBodyLinkCollider::upcast(multibodyLinkCol)->getWorldTransform();
 		btVector3 Col_central = Col_trans.getOrigin();
 
-		btScalar pointSize = 20;
+		btScalar pointSize = 30; // 20
 		// btVector3 pos2 = c.m_node->m_x;
 		btVector3 pos = c.m_c1 + Col_central;
-		btScalar delta_color = impulse.length() / MAX_SOFTBODY_FORCE; 
+		// btScalar delta_color = impulse.length() / MAX_SOFTBODY_IMPULSE;
+		btScalar force = impulse.length() / fixedTimeStep;
+		btScalar delta_color = force / MAX_SOFTBODY_FORCE; 
 		btVector3 color = btVector3(1, 1, 1-delta_color);
 		// b3Printf("deltaV = %f, %f, %f length = %f\n", deltaV.x(), deltaV.y(), deltaV.z());
 		// if(impulse.length())
@@ -1619,11 +1772,13 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 		  m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
 		  // m_guiHelper->getRenderInterface()->drawPoint(pos2, btVector3(1, 0, 0), pointSize);
 		  total_impulse += impulse.length();
+
 		  if(max_impulse < impulse.length())
 		  {
 		    max_impulse = impulse.length();
                     b3Printf("max_impulse = %f[N*s = kg*m/s]\n", max_impulse);
-                    b3Printf("max_impulse/timeStep = %f[N*s/s = N]\n", max_impulse / fixedTimeStep);
+		    max_force = force;
+                    b3Printf("Force(max_impulse/timeStep) = %f[N*s/s = N]\n", max_force);
 		  }
 		}
 	      }
@@ -1635,7 +1790,8 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
       {
 	max_total_impulse = total_impulse;
         b3Printf("max_total_impulse = %f\n", max_total_impulse);
-        b3Printf("max_total_impulse/timeStep = %f\n", max_total_impulse / fixedTimeStep);
+	max_total_force = max_total_impulse / fixedTimeStep;
+        b3Printf("max_force(max_total_impulse/timeStep) = %f\n", max_total_force);
       }
       // b3Printf("total_impulse = %f\n", total_impulse);
     }
