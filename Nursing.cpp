@@ -1791,7 +1791,7 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 	max_total_impulse = total_impulse;
         b3Printf("max_total_impulse = %f\n", max_total_impulse);
 	max_total_force = max_total_impulse / fixedTimeStep;
-        b3Printf("max_force(max_total_impulse/timeStep) = %f\n", max_total_force);
+        b3Printf("max_total_force(max_total_impulse/timeStep) = %f\n", max_total_force);
       }
       // b3Printf("total_impulse = %f\n", total_impulse);
     }
