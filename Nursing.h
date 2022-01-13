@@ -46,6 +46,8 @@
 #include "Importers/ImportMJCFDemo/BulletMJCFImporter.h"
 // ---------------------------------------
 
+#include <vector>
+
 class btSoftSoftCollisionAlgorithm;
 
 ///collisions between a btSoftBody and a btRigidBody
@@ -56,11 +58,13 @@ class btSoftRididCollisionAlgorithm;
 
 #define MAX_NUM_MOTORS 1024
 
+
 struct ImportMJCFInternalData
 { 
   ImportMJCFInternalData()
 	: m_numMotors(0),
-	  m_mb(0)
+	  m_mb(0),
+          m_orientation(false)
   {
     for (int i = 0; i < MAX_NUM_MOTORS; i++)
     {
@@ -74,6 +78,9 @@ struct ImportMJCFInternalData
   btGeneric6DofSpring2Constraint* m_generic6DofJointMotors[MAX_NUM_MOTORS];
   int m_numMotors;
   btMultiBody* m_mb;
+  // btAlignedObjectArray<btMultiBody*> m_humanoids;
+  bool m_orientation;
+  // int m_numHumanoids;
   // btRigidBody* m_rb;
 };
 
@@ -82,6 +89,8 @@ class Nursing : public CommonMultiBodyBase
   char m_fileName[1024];
 
   struct ImportMJCFInternalData* m_data;
+  btAlignedObjectArray<struct ImportMJCFInternalData*> m_datas;
+
   bool m_useMultiBody;
   btAlignedObjectArray<std::string*> m_nameMemory;
   btScalar m_grav;
@@ -120,9 +129,19 @@ public:
 
   btDefaultCollisionConfiguration* m_collisionConfiguration;
 
-  bool DrawContactForceFlag = false;
-  bool DrawMotorForceFlag = false;
+  bool DrawContactForceFlag = true;
+  bool DrawMotorForceFlag = true;
   bool DrawSoftForceFlag = true;
+
+  std::vector<std::string> vstr;
+ 
+  int num_humanoid; // humanoidの数
+  btScalar humanA_angle_array[23] = {0.f}; // jointの角度を格納
+  btScalar humanB_angle_array[23] = {0.f}; // jointの角度を格納
+  btScalar before_angle_array[23] = {0.f}; // jointの角度が計算できない時、直前の角度を使う 
+  btScalar humanA_before_angle_array[23] = {0.f}; //  
+  btScalar humanB_before_angle_array[23] = {0.f}; // 
+
 public:
   void initPhysics();
 
@@ -148,7 +167,7 @@ public:
 #if 1	// MJCF Camera Setting
     float dist = 3.0;
     float pitch = -28;
-    float yaw = 50;
+    float yaw = -50;
     float targetPos[3] = {0.47, 0, -0.64};
 #endif  
     m_guiHelper->resetCamera(dist, yaw, pitch, targetPos[0], targetPos[1], targetPos[2]);
@@ -221,8 +240,8 @@ public:
 	btSoftBody* psb = (btSoftBody*)softWorld->getSoftBodyArray()[i];
 	//if (softWorld->getDebugDrawer() && !(softWorld->getDebugDrawer()->getDebugMode() & (btIDebugDraw::DBG_DrawWireframe)))
 	{
-	  btSoftBodyHelpers::DrawFrame(psb, softWorld->getDebugDrawer());
-	  btSoftBodyHelpers::Draw(psb, softWorld->getDebugDrawer(), softWorld->getDrawFlags());
+	  // btSoftBodyHelpers::DrawFrame(psb, softWorld->getDebugDrawer());
+	  // btSoftBodyHelpers::Draw(psb, softWorld->getDebugDrawer(), softWorld->getDrawFlags());
 	}
       }
     }
@@ -232,7 +251,13 @@ public:
   void DrawMotorForce(btScalar fixedTimeStep = 1. / 60.f);
   void DrawSoftBodyAppliedForce(btScalar fixedTimeStep = 1. / 60.f);
 
-  void SetPose(std::string pos_file_name);
+  void judgeOrientation(struct ImportMJCFInternalData* m_data, const std::vector<std::string> &vstr, int n = 0);
+  void readKeyPointFile(const char* filename, std::vector<std::string> &vstr);
+  // void arrangeKeypointData(const char* output_filename);
+  void arrangeKeypointData();
+  void getPosData(const std::vector<std::string> &vstr, btScalar pos_data[][3], int frame = 0, int num = 0);
+  void getInitRootJointPos(btScalar *root_joint_pos, int num = 0);
+  void calcJointAngle(btScalar *angle_array, int frame = 0, int num = 0);
 };
 
 class CommonExampleInterface* NursingCreateFunc(struct CommonExampleOptions& options);

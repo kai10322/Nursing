@@ -5,7 +5,7 @@
   This software is provided 'as-is', without any express or implied warranty.
   In no event will the authors be held liable for any damages arising from the use of this software.
   Permission is granted to anyone to use this software for any purpose, 
-  including commercial applications, and to alter it and redistribute it freely, 
+ MAX_CONTACT_FORCi including commercial applications, and to alter it and redistribute it freely, 
   subject to the following restrictions:
 
   1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.
@@ -15,17 +15,23 @@
 
 ///btSoftBody implementation by Nathanael Presson
 
+#define SIMULATION
+
+#define JOINT_ANGLE_SHOW
+
 #define DEBUG_HUMANOID 
 #define CREATE_CLOTH
 // #define CREATE_BED_BOX
 // #define CREATE_MULTIBODY_SPHERE
-#define CREATE_RIGID_SHPERE
+// #define CREATE_RIGID_SHPERE
 // #define CREATE_SOFTBOX
 // #define CREATE_TETRACUBE 
-#define MAX_CONTACT_FORCE 500 // [N] // humanoidの全質量は約41kgなので
+#define MAX_CONTACT_FORCE 80 // [N] // humanoidの全質量は約41kgなので
 #define MAX_SOFTBODY_IMPULSE 0.01 // [N*s(TimeStep)]
 #define MAX_SOFTBODY_FORCE 0.5 // [N] // 2.4, 0.8
-#define MAX_JOINTMOTOR_TORQUE 400 // [N*m] // 
+#define MAX_JOINTMOTOR_TORQUE 50 // [N*m] // 
+
+#define NOT_ESTIMATED 100000
 
 #include "btBulletDynamicsCommon.h"
 #include "BulletSoftBody/btSoftMultiBodyDynamicsWorld.h" //
@@ -55,11 +61,13 @@
 // #include <ExampleBrowser/OpenGLGuiHelper.h>
 
 // ---------------------------------------
-// using include files
+// include standard c++ libraly
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <iostream>
+#include <map>
 // ---------------------------------------
 
 class btBroadphaseInterface;
@@ -119,6 +127,13 @@ int current_demo = 20;
 #define EXTRA_HEIGHT -10.f
 #define MAX_NUM_MOTORS 1024
 
+btVector3 white = btVector3(1, 1, 1);
+btVector3 red = btVector3(1, 0, 0);
+btVector3 green = btVector3(0, 1, 0);
+btVector3 blue = btVector3(0, 0, 1);
+btVector3 yellow = btVector3(1, 1, 0);
+btVector3 black = btVector3(0, 0, 0);
+
 //
 
 struct TetraCube
@@ -130,6 +145,8 @@ struct TetraCube
 // variable to store mjcf file names
 static btAlignedObjectArray<std::string> gMCFJFileNameArray;
 // --------------------
+
+btAlignedObjectArray<struct ImportMJCFInternalData*> m_datas;
 
 // ----------------------------------------------------------------------------------
 // constructor 
@@ -149,6 +166,14 @@ Nursing::Nursing(struct GUIHelperInterface* helper)
   }
   else
 #endif
+
+
+  // humanoidを何体生成するかを入力（画像内の人の数）
+  b3Printf("  Please Input Humanoid Num -> ");
+  std::string num;
+  getline(std::cin, num);
+  num_humanoid = atoi(num.c_str());
+
   {
     gMCFJFileNameArray.clear();
 
@@ -175,7 +200,13 @@ Nursing::Nursing(struct GUIHelperInterface* helper)
 
     if (gMCFJFileNameArray.size() == 0)
     {
-	  gMCFJFileNameArray.push_back("./humanoid2.xml");
+	  if(num_humanoid == 2)
+   	    gMCFJFileNameArray.push_back("./humanoid_model/original_humanoid_2.xml");
+	  else 
+   	    gMCFJFileNameArray.push_back("./humanoid_model/original_humanoid.xml");
+   	    // gMCFJFileNameArray.push_back("./humanoid_model/original_humanoid_noLimit.xml");
+
+	  // gMCFJFileNameArray.push_back("./humanoid2.xml");
 	  // gMCFJFileNameArray.push_back("./humanoid_SoftTest.xml");
     }
     int numFileNames = gMCFJFileNameArray.size();
@@ -187,9 +218,11 @@ Nursing::Nursing(struct GUIHelperInterface* helper)
     sprintf(m_fileName, "%s", gMCFJFileNameArray[count++].c_str());
   }
 
+  /*
   for(int i = 0; i < gMCFJFileNameArray.size(); i++){
     b3Printf("gMCFJFileNameArray[%d] = %s\n", i, gMCFJFileNameArray[i].c_str());
   }
+  */
 }
 // ----------------------------------------------------------------------------------
 
@@ -398,14 +431,14 @@ static btRigidBody* createRigidSphere(Nursing* pdemo, btScalar mass = 1.0, btSca
 //
 // Rigid Bed Box
 //
-static btRigidBody* createBedBox(Nursing* pdemo, btScalar mass = 0.0, btScalar base_size = 0.6)
+static btRigidBody* createBedBox(Nursing* pdemo, btScalar mass = 0.0, btScalar base_size = 0.5)
 {
   //
   // 	Create Rigid Mattress	//
   //
   // 190:100:40[cm]
   btScalar width = base_size;
-  btScalar height = base_size * 0.4;
+  btScalar height = base_size * 0.7;
   btScalar depth = base_size * 1.9;
   btTransform startTransform;
   startTransform.setIdentity();
@@ -424,7 +457,7 @@ static btRigidBody* createBedBox(Nursing* pdemo, btScalar mass = 0.0, btScalar b
 //
 // Cretate Compound Bed 
 //
-static btRigidBody* createCompoundBed(Nursing* pdemo, btScalar mass = 0.0, btScalar base_size = 0.6)
+static btRigidBody* createCompoundBed(Nursing* pdemo, btScalar mass = 0.0, btScalar base_size = 0.5f)
 {
   btCompoundShape* BedShape = new btCompoundShape();
   // btScalar curve_radius = 0.05;
@@ -436,9 +469,9 @@ static btRigidBody* createCompoundBed(Nursing* pdemo, btScalar mass = 0.0, btSca
   //	Create Main Body	//
   // 190:100:40[cm]
   btScalar width = base_size - (margin/2);
-  btScalar height = base_size * 0.4;
+  btScalar height = base_size * 0.3f; // 0.4f
   // btScalar height = base_size * 0.3;
-  btScalar depth = base_size * 1.9 - (margin/2);
+  btScalar depth = base_size * 1.9f - (margin/2.f);
   btTransform trans;
   trans.setIdentity();
   trans.setOrigin(btVector3(0, 0, height));
@@ -551,6 +584,8 @@ static btRigidBody* createCompoundBed(Nursing* pdemo, btScalar mass = 0.0, btSca
   startTransform.setIdentity();
   startTransform.setOrigin(btVector3(0, 0, body_base));
   btRigidBody* BedBody = pdemo->createRigidBody(mass, startTransform, BedShape);
+  BedBody->setFriction(1);;
+  BedBody->setRollingFriction(1);
   BedBody->setCollisionFlags(BedBody->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
 
   // int collisionFilterGroup = int(btBroadphaseProxy::StaticFilter);
@@ -565,7 +600,7 @@ static btRigidBody* createCompoundBed(Nursing* pdemo, btScalar mass = 0.0, btSca
 //
 static btSoftBody* Ctor_SoftBox(Nursing* pdemo, const btVector3& p, const btVector3& s)
 {
-  const btVector3 h = s * 0.5;
+  const btVector3 h = s * 0.4;
   const btVector3 c[] = {p + h * btVector3(-1, -1, -1),
     p + h * btVector3(+1, -1, -1),
     p + h * btVector3(-1, +1, -1),
@@ -674,9 +709,9 @@ static btSoftBody* Cloth(Nursing* pdemo)
 {
 	// btScalar margin = 0.13; // 衝突マージン(上から落とす時)
 	btScalar margin = 0.07; // 衝突マージン // 0.05 or 0.1
-        btScalar Bed_height = 0.24 * 2 + margin*2 + 0.2; // Bed Height : 0.24*2, Ground Height : 0.2
-	btScalar h = 1.5;
-        btScalar w = 1.0;
+        btScalar Bed_height = 0.5*0.38*2 + margin + 0.2; // Bed Height : 0.24*2, Ground Height : 0.2
+	btScalar h = 1.2;
+        btScalar w = 0.7;
         btSoftBody* psb = btSoftBodyHelpers::CreatePatch(
 			pdemo->m_softBodyWorldInfo, 
 			btVector3(-h*1., -w*1., 0), btVector3(+h*1., -w*1., 0),
@@ -687,16 +722,16 @@ static btSoftBody* Cloth(Nursing* pdemo)
 
         btSoftBody::Material* pm = psb->appendMaterial();
         psb->m_materials[0]->m_kLST = 0.3; // 0.3 or 0.6
-        // psb->m_materials[0]->m_kAST = 0.4; // 
+        psb->m_materials[0]->m_kAST = 0.1; // 
         pm->m_flags -= btSoftBody::fMaterial::DebugDraw;
         // psb->generateBendingConstraints(2, pm);
-        psb->setTotalMass(10.0); // 15kgぐらいなら布を浮かせていても破れない(RigidSphere時)
+        psb->setTotalMass(20.0); // 15kgぐらいなら布を浮かせていても破れない(RigidSphere時)
         // psb->setTotalMass(615.0);  // 600 // 1kg 
         // psb->setVolumeDensity(1);
 	psb->translate(btVector3(0, 0, Bed_height));
 	psb->m_cfg.kDF = 1;
-        psb->m_cfg.kCHR = 0.3; // 0.3
-        psb->m_cfg.kKHR = 0.3; // 0.2
+        psb->m_cfg.kCHR = 0.1; // 0.3
+        psb->m_cfg.kKHR = 0.3; // 0.3
         // psb->m_cfg.kSRHR_CL = 1;
         // psb->m_cfg.kSR_SPLT_CL = 0;
         // psb->m_cfg.kSSHR_CL = 0.1; // 0.3
@@ -720,6 +755,9 @@ static btSoftBody* Cloth(Nursing* pdemo)
          psb->m_cfg.viterations = 100;
          psb->m_cfg.diterations = 100;
         // psb->m_cfg.citerations = 100;
+
+        psb->setFriction(1);
+        psb->setRollingFriction(1);
 
         pdemo->getSoftDynamicsWorld()->getSolverInfo().m_splitImpulse = true;
 
@@ -802,7 +840,7 @@ void Nursing::autogenerateGraphicsObjects(btDiscreteDynamicsWorld* rbWorld, btVe
   }
   sortedObjects.quickSort(shapePointerCompareFunc);
   int whiteTextureId = createCheckeredTexture();
-  b3Printf("whiteTextureId = %d\n", whiteTextureId);
+  // b3Printf("whiteTextureId = %d\n", whiteTextureId);
   for (int i = 0; i < sortedObjects.size(); i++)
   {
     btCollisionObject* colObj = sortedObjects[i];
@@ -996,8 +1034,11 @@ void Nursing::initPhysics()
   // const char* typeName = info.name();
   // b3Printf("typeName = %s\n", typeName);
   // -------------------------------------------------
+
   m_guiHelper->createPhysicsDebugDrawer(m_dynamicsWorld);
-#if 0
+  m_dynamicsWorld->getDebugDrawer()->setDebugMode(0);
+
+#if 0 
   m_dynamicsWorld->getDebugDrawer()->setDebugMode(
       	  btIDebugDraw::DBG_DrawConstraints 
       	+ btIDebugDraw::DBG_DrawContactPoints 
@@ -1007,7 +1048,9 @@ void Nursing::initPhysics()
 	);
 #endif
 
-  m_dynamicsWorld->debugDrawWorld();
+  // m_dynamicsWorld->debugDrawWorld();
+  // int debugMode = m_dynamicsWorld->getDebugDrawer()->getDebugMode(); 
+  // b3Printf("	=====> debugMode = %d\n", debugMode);
   m_dynamicsWorld->setInternalTickCallback(pickingPreTickCallback, this, true);
 
   m_dynamicsWorld->getDispatchInfo().m_enableSPU = true;
@@ -1092,8 +1135,8 @@ void Nursing::initPhysics()
   int collisionFilterGroup = isDynamic ? int(btBroadphaseProxy::DefaultFilter) : int(btBroadphaseProxy::StaticFilter);
   int collisionFilterMask = isDynamic ? int(btBroadphaseProxy::AllFilter) : int(btBroadphaseProxy::AllFilter ^ btBroadphaseProxy::StaticFilter);
 
-  b3Printf("CollisionGroup = %d\n", collisionFilterGroup);
-  b3Printf("CollisionMask = %d\n", collisionFilterMask);
+  // b3Printf("CollisionGroup = %d\n", collisionFilterGroup);
+  // b3Printf("CollisionMask = %d\n", collisionFilterMask);
 
   m_dynamicsWorld->addCollisionObject(col, collisionFilterGroup, collisionFilterMask);  
   // m_dynamicsWorld->addCollisionObject(col);  
@@ -1131,8 +1174,21 @@ void Nursing::initPhysics()
   // createRigidSphere(this, 0.1);
 #endif
 
-  // ----------------------------------------------------------------------------------
-  // create humanoid models
+
+  // 最初に全フレームのkeypointデータを読み込む
+  const std::string dir_path = "./keypoint_folder/";
+  std::string filename;
+  b3Printf("  Please Input FileName -> ");
+  getline(std::cin, filename);
+  b3Printf(" ----- Start KeyPoint File Reading ----- \n");
+  readKeyPointFile((dir_path+filename).c_str(), vstr);
+  b3Printf(" ----- Finish KeyPoint File Reading ----- \n");
+  b3Printf("  Total Frame : %d\n", vstr.size()/num_humanoid);
+  b3Printf("  Humanoid Num : %d\n", num_humanoid);
+
+  // arrangeKeypointData("./keypoint_folder/arrange_KeypointFile.txt");
+  arrangeKeypointData();
+
 #if 0
   createEmptyDynamicsWorld();
 
@@ -1145,6 +1201,7 @@ void Nursing::initPhysics()
   m_dynamicsWorld->getDebugDrawer()->setDebugMode(btIDebugDraw::DBG_DrawConstraints + btIDebugDraw::DBG_DrawContactPoints + btIDebugDraw::DBG_DrawAabb);  //+btIDebugDraw::DBG_DrawConstraintLimits);
 #endif
 
+  // reading MJCF Models
   if (m_guiHelper->getParameterInterface())
   // if (m_guiHelper->getAppInterface())
   {
@@ -1170,6 +1227,11 @@ void Nursing::initPhysics()
     // for (int m = 0; m < importer.getNumModels()-1; m++)
     for (int m = 0; m < importer.getNumModels(); m++)
     {
+
+      // 設定した人数より多くの人体モデルを読み込んでいる時、break
+      if(num_humanoid < m)
+	break;
+
       importer.activateModel(m);
 
       // normally used with PhysicsServerCommandProcessor that allocates unique ids to multibodies,
@@ -1184,18 +1246,87 @@ void Nursing::initPhysics()
       MyMultiBodyCreator creation(m_guiHelper);
 
       rootTrans.setIdentity();
-      if(m == 1){
+
+      // change humanoid init orientation and position using KeyPoint-File and RootFile 
+      if( !(m == 0) )
+      {
+        judgeOrientation(m_data, vstr, m-1); 
+	b3Printf("  Humanoid %d's Orientation : %s\n", m-1, m_data->m_orientation ? "True" : "False");
+	btScalar Bed_edge = 0.8f;
+	// baseline内で後ろ向きならhumanoidを180°回転させる
+	/*
+	if(m_data->m_orientation)
+	{
+	  // btScalar root_x = 200.f/1000.f; // .fを付けないと小数点以下が切り捨てられる
+	  // btScalar temp_y = 300;
+	  // btScalar root_y = -temp_y/1000;
+	  rootTrans.setOrigin(btVector3(0.f, -Bed_edge, -0.2));
+	  btQuaternion q; q.setRotation(btVector3(0, 0, 1), (SIMD_PI*3)/2); // ベッドに背を向けている 
+	  rootTrans.setRotation(q);
+	}
+	else
+	*/
+	{
+	  // btScalar root_x = -200/1000.f;
+	  // btScalar temp_y = 250.f;
+	  // btScalar root_y = -temp_y/1000.f;
+	  // root_z = 0.f;
+	  // btQuaternion q; q.setRotation(btVector3(0, 0, 1), SIMD_PI/2); // ベッドの方を向いている 
+	  // btQuaternion q; q.setRotation(btVector3(0, 0, 1), (SIMD_PI*3)/2); // ベッドに背を向けている 
+	  // btQuaternion q; q.setRotation(btVector3(0, 0, 1), 0); // ベッドは縦向きで、カメラの方向に顔を向けている 
+	  // rootTrans.setRotation(q);
+
+
+	  // b3Printf("   root_x => %f\n", root_x);
+	  // b3Printf("   root_y => %f\n", root_y);
+	  // b3Printf("   root_z => %f\n", root_z);
+	  
+	  if( m == 1 )
+	  {
+	    btScalar root_joint_pos_humanA[3] = {0.f};
+	    getInitRootJointPos(root_joint_pos_humanA, 0);
+	    btScalar root_x = root_joint_pos_humanA[1];
+	    btScalar root_y = btFabs(root_joint_pos_humanA[0]);
+	    b3Printf("root_y ======> %f\n", root_y);
+	    root_y = root_y / 1000.f;
+	    b3Printf("root_x ======> %f\n", root_x);
+	    // btScalar root_z = root_joint_pos[2] / 250.f;
+      	    rootTrans.setIdentity();
+	    btQuaternion q; 
+	    rootTrans.setOrigin(btVector3(-1.f, 0.f, 0.85));
+	    rootTrans.setOrigin(btVector3(-1.f, -root_y, 0.85)); 
+	    // rootTrans.setOrigin(btVector3(0.f, -1.34f, 0.85)); // IMG1268
+	    // q.setRotation(btVector3(0, -1, 0), SIMD_PI/2); // 仰向け(頭手前側)
+	    // q.setEulerZYX(3*SIMD_PI/2, -SIMD_PI/2, 0); // 仰向け(頭左側)
+	    q.setEulerZYX(SIMD_PI + 20*SIMD_PI/180, -SIMD_PI/2, 0); // 仰向け(頭奥側)
+	    root_y = 0.8;
+	    // rootTrans.setOrigin(btVector3(0.1f, -root_y, 0.1));
+	    // q.setRotation(btVector3(0, 0, 1), -SIMD_PI/2); // ベットに背を向けている 
+       	    rootTrans.setRotation(q);
+	  }
+	  else if( m == 2 )
+	  {
+	    btScalar root_joint_pos_humanB[3] = {0.f};
+	    getInitRootJointPos(root_joint_pos_humanB, 1);
+	    btScalar root_y = btFabs(root_joint_pos_humanB[0]);
+	    b3Printf("root_y ======> %f\n", root_y);
+	    root_y = 1.08;
+            rootTrans.setIdentity();
+	    rootTrans.setOrigin(btVector3(-0.7f, -root_y, -0.15));
+	    btQuaternion q; q.setRotation(btVector3(0, 0, 1), (SIMD_PI/2 - 27*SIMD_PI/180)); // ベッドの方を向いている 
+       	    rootTrans.setRotation(q);
+	  }
+	}
+      }
+
+
+
+#if 0 // test用（humanoidがBed上に横たわっている）
+      if(!m == 0){
         // change humanoid1 start position
-        // rootTrans.setOrigin(btVector3(0, -1.5, -0.2));
-#if 1
         rootTrans.setOrigin(btVector3(1, 0, 0.9)); // BedFrameなしの時
-        // rootTrans.setOrigin(btVector3(1, 0, 1.3)); // BedFrameありの時
 	btQuaternion q; q.setRotation(btVector3(0, -1, 0), SIMD_PI/2); // 仰向け 
-        // rootTrans.setOrigin(btVector3(-1, 0, 1.5)); // BedFrameありの時
-	// btQuaternion q; q.setRotation(btVector3(0, -1, 0), 3*SIMD_PI/2); // うつ伏せ
-	// btQuaternion q; q.setRotation(btVector3(0, 0, 1), SIMD_PI/2); // Bed側を向く
 	rootTrans.setRotation(q);
-#endif
       }
       else if(m == 2){
         // change humanoid2 start position
@@ -1205,6 +1336,7 @@ void Nursing::initPhysics()
 	// set floor position to root
         importer.getRootTransformInWorld(rootTrans);
       }
+#endif
 
       ConvertURDF2Bullet(importer, creation, rootTrans, m_dynamicsWorld, m_useMultiBody, importer.getPathPrefix(), CUF_USE_MJCF);
 
@@ -1212,10 +1344,20 @@ void Nursing::initPhysics()
 
       // calc humanoid total mass
       btScalar TotalMass = mb->getBaseMass();
-      b3Printf("BaseMass = %d\n", TotalMass);
+      // b3Printf("BaseMass = %d\n", TotalMass);
+
+	if( m == 0 )
+	{
+          btCollisionObject* ground_col = btMultiBodyLinkCollider::upcast(mb->getBaseCollider());
+	  ground_col->setFriction(1000.0);
+          ground_col->setRollingFriction(1000.0);
+	  // b3Printf("ground_friction = %d\n", ground_col->getFriction());
+	  // b3Printf("ground_rollingfriction = %d\n", ground_col->getRollingFriction());
+	}
 
       if (mb)
       {
+
 	std::string* name = new std::string(importer.getLinkName(importer.getRootLinkIndex()));m_nameMemory.push_back(name);
 #ifdef TEST_MULTIBODY_SERIALIZATION
 	s->registerNameForPointer(name->c_str(), name->c_str());
@@ -1226,6 +1368,24 @@ void Nursing::initPhysics()
 
 	//create motors for each btMultiBody joint
 	int numLinks = mb->getNumLinks();
+
+	m_data->m_numMotors = 0;
+
+        btCollisionObject* base_col = btMultiBodyLinkCollider::upcast(mb->getBaseCollider());
+	// base_col->setFriction(2.0);
+        // base_col->setRollingFriction(2.0);
+
+	// b3Printf("numLinks = %d", numLinks);
+
+
+	// 0フレーム目の姿勢を初期姿勢にする
+	/*
+	if( m == 1 )
+	  calcJointAngle(humanA_angle_array, 0, m-1); 
+	else if( m == 2 )
+	  calcJointAngle(humanB_angle_array, 0, m-1); 
+	*/
+
 
 	for (int i = 0; i < numLinks; i++) // numLinks = 33
 	{
@@ -1246,11 +1406,13 @@ void Nursing::initPhysics()
 	  mb->getLink(i).m_linkName = linkName->c_str();
 	  mb->getLink(i).m_jointName = jointName->c_str();
 	  m_data->m_mb = mb;
+	  // m_data->m_humanoids.push_back(mb);
+	  // m_data->m_numHumanoids++;
 
           TotalMass += mb->getLinkMass(i);
 
-	  b3Printf("%s\n", linkName->c_str());
-	  b3Printf("	%s\n", jointName->c_str());
+	  // b3Printf("%s\n", linkName->c_str());
+	  // b3Printf("	%s\n", jointName->c_str());
 
 
           btCollisionObject* link_col = btMultiBodyLinkCollider::upcast(mb->getLinkCollider(i));
@@ -1261,6 +1423,11 @@ void Nursing::initPhysics()
 	  btCollisionShape* col_shape = link_col->getCollisionShape();
 
 	  link_col->setCollisionFlags(link_col->getCollisionFlags() | btCollisionObject::CF_CHARACTER_OBJECT);
+
+	  link_col->setFriction(1.0);
+	  link_col->setRollingFriction(1.0);
+	  // b3Printf("friction = %d\n", link_col->getFriction());
+	  // b3Printf("rollingfriction = %d\n", link_col->getRollingFriction());
 
 	  /*
 	  if(col_shape->isConvex())
@@ -1274,13 +1441,14 @@ void Nursing::initPhysics()
 	    }
 	  }
 	  */
+	  
 	  if(*linkName == "left_lower_arm" || *linkName == "link1_33")
 	  {
 	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
 	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 0, 0, 1));
 	    col_shape->setMargin(1.);
-	    link_col->setCcdSweptSphereRadius(0.5);
-            link_col->setCcdMotionThreshold(0.0001);
+	    // link_col->setCcdSweptSphereRadius(0.5);
+            // link_col->setCcdMotionThreshold(0.0001);
 
 	  }
 	  if(*linkName == "right_lower_arm" || *linkName == "link1_28")
@@ -1290,33 +1458,38 @@ void Nursing::initPhysics()
 	    col_shape->setMargin(1.);
 	    // btScalar margin = col_shape->getMargin();
 	    // b3Printf("margin = %f\n", margin);
-	     link_col->setCcdSweptSphereRadius(0.5);
-             link_col->setCcdMotionThreshold(0.0001);
+	    // link_col->setCcdSweptSphereRadius(0.5);
+            // link_col->setCcdMotionThreshold(0.0001);
 
 	  }
 	  if(*linkName == "left_upper_arm" || *linkName == "link1_30" || *linkName == "link1_31")
 	  {
 	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
 	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 0, 0, 1));
-	    col_shape->setMargin(1.);
+	    // col_shape->setMargin(1.);
 	  }
 	  if(*linkName == "right_upper_arm" || *linkName == "link1_25" || *linkName == "link1_26")
 	  {
 	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
 	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 0, 0, 1));
-	    col_shape->setMargin(1.);
+	    // col_shape->setMargin(1.);
 	  }
 	  if(*linkName == "left_foot")
 	  {
 	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
 	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 0, 0, 1));
-	    col_shape->setMargin(1.);
+	    // col_shape->setMargin(1.);
+            // link_col->setCollisionFlags(link_col->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
 	  }
 	  if(*linkName == "right_foot")
 	  {
 	    m_guiHelper->createCollisionShapeGraphicsObject(col_shape);
 	    // m_guiHelper->createCollisionObjectGraphicsObject(link_col, btVector4(1, 0, 0, 1));
-	    col_shape->setMargin(1.);
+	    // col_shape->setMargin(1.);
+	  }
+	  if(*linkName == "pelvis")
+	  {
+	    // link_col->setCollisionFlags(btCollisionObject::CF_STATIC_OBJECT);
 	  }
 	    
 	  if (mb->getLink(mbLinkIndex).m_jointType == btMultibodyLink::eRevolute || mb->getLink(mbLinkIndex).m_jointType == btMultibodyLink::ePrismatic)
@@ -1327,19 +1500,35 @@ void Nursing::initPhysics()
 	      sprintf(motorName, "%s q ", jointName->c_str());
 	      MotorJointNames.push_back(*jointName);
 	      btScalar* motorPos = &m_data->m_motorTargetPositions[m_data->m_numMotors];
+
+
 	      *motorPos = 0.f;
-	      SliderParams slider(motorName, motorPos);
-	      slider.m_minVal = -4;
-	      slider.m_maxVal = 4;
-	      slider.m_clampToIntegers = false;
-	      slider.m_clampToNotches = false;
+	      // SliderParams slider(motorName, motorPos);
+	      // slider.m_minVal = -4;
+	      // slider.m_maxVal = 4;
+	      // slider.m_clampToIntegers = false;
+	      // slider.m_clampToNotches = false;
 	      // b3Printf("param = %f\n", m_guiHelper->getParameterInterface());
 	      // JointMotorのスライダーを設定
 	      // m_guiHelper->getParameterInterface()->registerSliderFloatParameter(slider);
 	      float maxMotorImpulse = 5.f;
 	      btMultiBodyJointMotor* motor = new btMultiBodyJointMotor(mb, mbLinkIndex, 0, 0, maxMotorImpulse);
 	      motor->setErp(0.1);
-	      //motor->setMaxAppliedImpulse(0);
+	      // motor->setMaxAppliedImpulse(0);
+	      
+	      /*
+	      if( m == 1 )
+	      {
+		btScalar pos = humanA_angle_array[m_data->m_numMotors];
+		motor->setPositionTarget(pos);
+	      }
+	      if( m == 2 )
+	      {
+		btScalar pos = humanB_angle_array[m_data->m_numMotors];
+		motor->setPositionTarget(pos);
+	      }
+	      */
+
 	      m_data->m_jointMotors[m_data->m_numMotors] = motor;
 	      m_dynamicsWorld->addMultiBodyConstraint(motor);
 	      m_data->m_numMotors++;
@@ -1363,20 +1552,65 @@ void Nursing::initPhysics()
       }
       if(m == 1)
       {
-        b3Printf("TotalMass = %f\n", TotalMass);
+        // b3Printf("TotalMass = %f\n", TotalMass);
+      }
+
+      if(m != 0)
+      {
+	// b3Printf("m_data->m_numMotors = %d\n", m_data->m_numMotors);
+        m_datas.push_back(m_data);
+	m_data++;
       }
     }
   }
 #endif
 
-  btVector4 rgba = btVector4(1, 1, 1, 1);
-  Nursing::autogenerateGraphicsObjects(m_dynamicsWorld, rgba);
 #if 0
   int texWidth = 1024;
   int texHeight = 1024;
   unsigned char texels = 255;
   m_guiHelper->changeTexture(1, &texels, texWidth, texHeight);
 #endif
+
+
+  
+  /*
+  // 0フレーム目の姿勢を取らせる
+  for(int n = 0; n < m_datas.size(); n++)
+  {
+    b3Printf("    change Init Pos    \n");
+
+    struct ImportMJCFInternalData* humanoid_data = m_datas[n];
+
+    if( n == 0 )
+      calcJointAngle(humanA_angle_array, 0, n); 
+    else
+      calcJointAngle(humanB_angle_array, 0, n); 
+	
+    for (int i = 0; i < humanoid_data->m_numMotors; i++)
+    {
+      if (humanoid_data->m_jointMotors[i])
+      {
+	btScalar pos;
+
+	if( n == 0 )
+	{
+          pos = humanA_angle_array[i];
+	  // pos = M_PI/6;
+	}
+	else
+          pos = humanB_angle_array[i];
+
+	humanoid_data->m_jointMotors[i]->setPositionTarget(pos);    
+      }
+    }
+  }
+  */
+  
+
+
+  btVector4 rgba = btVector4(1, 1, 1, 1);
+  Nursing::autogenerateGraphicsObjects(m_dynamicsWorld, rgba);
 }
 
 void Nursing::exitPhysics()
@@ -1421,64 +1655,1873 @@ void Nursing::exitPhysics()
   delete m_collisionConfiguration;
 }
 
-btScalar dt = 0;
-// ----------------------------------------------------------------------------------
-btScalar pos_array[21] = {0}; // humanoidの関節角を保持
+
+
+//
+// 3x3の行列と3次元ベクトルの積を計算する関数
+//
+btVector3 calc_rot_mat(btMatrix3x3 rot, btVector3 base)
+{
+  btVector3 result;
+  for(int r = 0; r < 3; r++)
+  {
+    btVector3 row = rot.getRow(r);
+    if(r == 0)
+      result.setX(row.dot(base));
+    if(r == 1)
+      result.setY(row.dot(base));
+    if(r == 2)
+      result.setZ(row.dot(base));
+  }
+  return result;
+}
+
+//
+// 骨格の長さを計算する関数
+//
+btScalar calc_born_length(btScalar x, btScalar y, btScalar z)
+{
+  btVector3 born = btVector3(x, y, z);
+  return born.length();
+}
+
+//
+// 身体が正面を向いているか後ろ向きかを判定
+// 0 Frame目での、各人のright_hipとleft_hipの位置関係を使う
+//
+void Nursing::judgeOrientation(struct ImportMJCFInternalData* m_data, const std::vector<std::string> &vstr, int n)
+{
+  const int joint_num = 17;
+  // baselineの骨格モデルを構成しているkeypoint
+  unsigned int baseline_joint[joint_num] = {0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27};   
+  // baselineのデータを読み込む配列
+  btScalar tmp_pos_data[32][3] = {0.f};
+
+  std::string line_data = vstr[n];
+
+  // カンマ区切りごとにデータを読み込むためにistringstream型にする
+  std::istringstream i_stream(line_data);
+  std::string tmp;
+
+  unsigned int i = 0, j = 0;
+  while(getline(i_stream, tmp, ',')) {
+    if(j == 3){
+      j = 0;
+      i++;
+      if(i == 32)
+        break;
+    }  
+  // 文字型のデータをdouble型に変換し、pos_data配列に格納していく
+    tmp_pos_data[i][j] = std::stof(tmp);
+    j++;
+  }
+
+  btScalar pos_data[joint_num][3] = {0.f};
+
+  for (int i = 0; i < 17; i++){
+    for(int j = 0; j < 3; j++){
+      pos_data[i][j] = tmp_pos_data[baseline_joint[i]][j];
+    }
+  }
+
+  btScalar right_hip_x = pos_data[1][0];
+  btScalar left_hip_x = pos_data[4][0];
+
+  if(left_hip_x < right_hip_x)
+    m_data->m_orientation = true;
+  else
+    m_data->m_orientation = false;
+}
+
+//
+// 計算対象の骨格が3d-pose-baseline内でちゃんと推定されていたかを判定
+// Nursing_keypoint_1.txtの時、500.f
+//
+bool judgeCalc(const btScalar pos[][3], int a, int b, int c)
+{
+  btScalar x, y, z;
+
+#if 0
+  x = pos[a][0] - pos[b][0];
+  y = pos[a][1] - pos[b][1];
+  z = pos[a][2] - pos[b][2];
+  // if(calc_born_length(x, y, z) > 1500.f)
+  if(calc_born_length(x, y, z) > 500.f)
+  {
+    return false;
+  }
+
+  x = pos[c][0] - pos[b][0];
+  y = pos[c][1] - pos[b][1];
+  z = pos[c][2] - pos[b][2];
+  // if(calc_born_length(x, y, z) > 1500.f)
+  if(calc_born_length(x, y, z) > 500.f)
+  {
+    return false;
+  }
+#endif
+
+  if(pos[a][0] == 0.f && pos[a][1] == 0.f && pos[a][2] == 0.f)
+	  return false;
+  if(pos[b][0] == 0.f && pos[b][1] == 0.f && pos[b][2] == 0.f)
+	  return false;
+  if(pos[c][0] == 0.f && pos[c][1] == 0.f && pos[c][2] == 0.f)
+	  return false;
+
+
+  return true;
+}
+
+// 1行ずつデータを読み込み、vectorに格納
+void Nursing::readKeyPointFile(const char* filename, std::vector<std::string> &vstr)
+{
+  std::ifstream pos_file(filename);
+
+  if(!pos_file) {
+    b3Printf(" Cannot Open Keypoint File!!!\n");
+    exit(1);
+  }
+  else
+    b3Printf("  reading keypoint file : %s\n", filename);
+
+  std::string line_data;
+  while(getline(pos_file, line_data))
+  {
+    line_data.erase(line_data.find('['), 1);
+    line_data.erase(line_data.find(']'), 1);
+    vstr.push_back(line_data);
+  }
+
+  return;
+}
+
+//
+// keypointの検出されている順番を、同じ順番になるように並び替える
+//
+// void Nursing::arrangeKeypointData(const char* output_filename)
+void Nursing::arrangeKeypointData()
+{
+  b3Printf(" -----  arrange keypoint data----- \n");
+
+  // std::ofstream output_file(output_filename);
+  // output_file.open(output_filename, std::ios::out);
+
+
+  // const int joint_num = 17;
+  // baselineの骨格モデルを構成しているkeypoint
+  // unsigned int baseline_joint[joint_num] = {0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27};   
+  // baselineのデータを読み込む配列
+  // btScalar tmp_pos_data[32][3] = {0.f};
+
+  btScalar humanA_root_x = 0.f;
+  btScalar humanA_before_root_x = 0.f;
+  btScalar humanB_root_x = 0.f;
+  btScalar humanB_before_root_x = 0.f;
+
+  // x座標があまりにも急に変化している時、データを入れ替える
+  for(int data_num = 0; data_num < vstr.size(); data_num++) // 1フレーム目にrootが検出されていないときも考慮
+  {
+    if(humanA_root_x != 0.f && humanB_root_x !=0.f)
+      break;
+
+    std::string line_data = vstr[data_num];
+
+    std::istringstream i_stream(line_data);
+    std::string tmp;
+
+    unsigned int i = 0, j = 0;
+    while(getline(i_stream, tmp, ',')) {
+      if( i == 8 && j == 0 )
+      {
+	// thoraxを基準にする
+	if(std::stof(tmp) != 0.f && data_num%2 == 0)
+	{
+	  humanA_root_x = std::stof(tmp);
+	}
+	if(std::stof(tmp) != 0.f && data_num%2 != 0)
+	{
+	  humanB_root_x = std::stof(tmp);
+	}
+	break;
+      }
+    }
+    j++;
+  }
+
+  for(int data_num = 2; data_num < vstr.size()-1; data_num++)
+  {
+    std::string line_data_1 = vstr[data_num];
+    std::string line_data_2 = vstr[data_num + 1];
+
+    std::istringstream i_stream(line_data_1);
+    std::string tmp;
+
+    btScalar root_x = 0.f;
+    unsigned int i = 0, j = 0;
+    while(getline(i_stream, tmp, ',')) {
+      if( i == 8 && j == 0 )
+      {
+	// humanAのthoraxが推定されている時
+	if( std::stof(tmp) != 0.f && data_num%2 == 0 )
+	{
+	  root_x = std::stof(tmp);
+	  if(btFabs(humanA_root_x - root_x) > 100.f)
+	  {
+	    vstr[data_num] = line_data_2;
+	    vstr[data_num + 1] = line_data_1;
+	    b3Printf("arrange frame = %d\n", data_num/2);
+	  }
+	  humanA_before_root_x = humanA_root_x;
+	  humanA_root_x = root_x;
+
+	  break;
+	}
+	// humanBのthoraxが推定されている時
+	if( std::stof(tmp) != 0.f && data_num%2 != 0 )
+	{
+	  root_x = std::stof(tmp);
+	  if(btFabs(humanB_root_x - root_x) > 100.f)
+	  {
+	    vstr[data_num - 1] = line_data_2;
+	    vstr[data_num] = line_data_1;
+	    b3Printf("arrange frame = %d\n", data_num/2);
+	  }
+	  humanB_before_root_x = humanB_root_x;
+	  humanB_root_x = root_x;
+
+	  break;
+	}
+      }
+      j++;
+    }
+  }
+
+  /*
+  for(int data_num = 0; data_num < vstr.size(); data_num++)
+  {
+    std::string line_data = vstr[data_num];
+    output_file << "[" << line_data << "]" << std::endl;
+  }
+
+  output_file.close();
+  */
+}
+
+
+//
+// fフレーム目のn番目の人のデータを取得
+//
+void Nursing::getPosData(const std::vector<std::string> &vstr, btScalar pos_data[][3], int frame, int num)
+{
+  b3Printf(" ----- reading frame : %d  human : %d  keypoint data ----- \n", frame, num);
+
+  const int joint_num = 17;
+  // keypoint座標を格納する配列
+  // btScalar pos_data[joint_num][3] = {0.f};
+  // baselineの骨格モデルを構成しているkeypoint
+  unsigned int baseline_joint[joint_num] = {0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27};   
+  // baselineのデータを読み込む配列
+  btScalar tmp_pos_data[32][3] = {0.f};
+
+  std::string line_data = vstr[frame*num_humanoid + num];
+
+  // カンマ区切りごとにデータを読み込むためにistringstream型にする
+  std::istringstream i_stream(line_data);
+  std::string tmp;
+
+  unsigned int i = 0, j = 0;
+  while(getline(i_stream, tmp, ',')) {
+    if(j == 3){
+      j = 0;
+      i++;
+      if(i == 32)
+        break;
+    }  
+  // 文字型のデータをdouble型に変換し、pos_data配列に格納していく
+  tmp_pos_data[i][j] = std::stof(tmp);
+  // b3Printf("tmp_pos_data[%d][%d] : %f \n", i, j, tmp_pos_data[i][j]);     // pos_data = {{x1,y1,z1},{x2,y2,z2},……}
+    j++;
+  }
+
+  for (int i = 0; i < 17; i++){
+    for(int j = 0; j < 3; j++){
+      pos_data[i][j] = tmp_pos_data[baseline_joint[i]][j];
+      // b3Printf("pos_data[%d][%d] : %f \n", i, j, pos_data[i][j]); 
+    }
+  }
+}
+
+void Nursing::getInitRootJointPos(btScalar *root_joint_pos, int num)
+{
+  btScalar pos_data[17][3] = {0.f};
+  int frame = 0; 
+  getPosData(vstr, pos_data, frame, num);
+  
+  root_joint_pos[0] = pos_data[0][0]; // x
+  root_joint_pos[1] = pos_data[0][1]; // y
+  root_joint_pos[2] = pos_data[0][2]; // z
+}
+
+//
+// 各Jointの角度を計算し、引数のangle_arrayに格納する
+//
+void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
+{
+  btScalar pos_data[17][3] = {0.f};
+  getPosData(vstr, pos_data, frame, num);
+
+  b3Printf(" ----- calc frame : %d human : %d joint Angle ----- \n", frame, num);
+
+
+  // 変数定義
+  // 座標軸はbaselineの座標軸を基にしている
+  /*
+  btScalar a_x = 0.f; btScalar a_y = 0.f; btScalar a_z = 0.f;
+  btVector3 a = btVector3(0.f, 0.f, 0.f);
+  btScalar b_x = 0.f; btScalar b_y = 0.f; btScalar b_z = 0.f;
+  btVector3 b = btVector3(0.f, 0.f, 0.f);
+  btScalar a2_x = 0.f; btScalar a2_y = 0.f; btScalar a2_z = 0.f;
+  btVector3 a2 = btVector3(0.f, 0.f, 0.f);
+  btScalar b2_x = 0.f; btScalar b2_y = 0.f; btScalar b2_z = 0.f;
+  btVector3 b2 = btVector3(0.f, 0.f, 0.f);
+  btVector3 rot_a = btVector3(0.f, 0.f, 0.f); // 
+  btVector3 rot_b = btVector3(0.f, 0.f, 0.f);
+  */
+  btVector3 plane_crossVec = btVector3(0.f, 0.f, 0.f); // 平面の法線ベクトル
+  btVector3 temp_crossVec = btVector3(0.f, 0.f, 0.f); // 回転方向を判定するための法線ベクトル
+  btScalar d = 0.f; btScalar N = 0.f; // 内積を計算するための変数
+  btScalar norm = 0.f; // ベクトルの長さ
+  // btScalar rot_x = 0.f; btScalar rot_y = 0.f; btScalar rot_z = 0;
+  btMatrix3x3 rot_mat; // 回転行列
+  btMatrix3x3 Rx; // X軸周りの回転行列
+  btMatrix3x3 Ry; // Y軸周りの回転行列
+  btMatrix3x3 Rz; // Z軸周りの回転行列
+  btVector3  rot_test1 = btVector3(0.f, 0.f, 0.f); // テスト用
+  btVector3  rot_test2 = btVector3(0.f, 0.f, 0.f); // テスト用
+  // btVector3  project_rot_a = btVector3(0.f, 0.f, 0.f);
+  // btVector3  negative_Y_axis = btVector3(0, -1, 0);
+  // btVector3 plane_rot_a = btVector3(0.f, 0.f, 0.f);
+  // btVector3 project_plane_crossVec = btVector3(0.f, 0.f, 0.f);
+
+  // 初期姿勢からの回転角度
+  btScalar rotA = 0.f;
+  btScalar rotB = 0.f;
+
+
+  
+#if 1 	// baselineのkeypoint : 0,8（脊椎を無視する）を胴体部分とする
+  // 
+  // calc abdomen joint angle
+  //
+  b3Printf("    --- calc abdomen joint angle --- \n");
+  if( judgeCalc(pos_data, 0, 7, 8) ) 
+  {
+    btScalar torso_x = pos_data[8][0] - pos_data[0][0];
+    btScalar torso_y = pos_data[8][1] - pos_data[0][1];
+    btScalar torso_z = pos_data[8][2] - pos_data[0][2];
+
+    if(m_datas[num]->m_orientation)
+    {
+      // baseline内で後ろ向きに推定されていたら、胴体の向きを変える
+      b3Printf("  baseline model is reverse\n ");
+      torso_x = -torso_x;
+      torso_y = -torso_y;
+    }
+
+    btVector3 torso = btVector3(torso_x, torso_y, torso_z);  // 胴体ベクトル
+
+    btVector3 init_torso = btVector3(0.f, 0.f, 1.f); // 初期胴体ベクトル
+    btVector3 init_torso_crossVec = btVector3(1.f, 0.f, 0.f); // 初期胴体の法線ベクトル（上半身が前に傾いている時を正とする）
+
+    // 
+    // calc abdomen_y angle
+    // 胴体をYZ平面に投影したベクトルと初期胴体とのなす角を計算
+    btVector3 project_torso = btVector3(0.f, torso.getY(), torso.getZ()); // 投影したベクトル
+    d = project_torso.dot(init_torso);
+    N = project_torso.norm() * init_torso.norm();
+
+    // YZ平面に投影した胴体と初期胴体との外積を計算
+    project_torso = btVector3(0.f, torso.getY(), torso.getZ());
+    temp_crossVec = init_torso.cross(project_torso);
+
+    if(temp_crossVec.getX() >= 0.0) 
+    {
+      // 胴体を前に倒している時
+      angle_array[1] = acos(d/N);
+      Rx = btMatrix3x3(1, 0, 0,
+                       0, btCos(angle_array[1]), -btSin(angle_array[1]),
+                       0, btSin(angle_array[1]), btCos(angle_array[1]));
+    }
+    else
+    {
+      angle_array[1] = -acos(d/N);
+/*
+      // baselineの推定結果によっては、身体を前に傾けているはずなのにthoraxのkeypointがpelvisより後ろにあったりするので、これを矯正するための処理
+      // 明らかに傾けている時、回転方向を変える
+      // しかし、こうすると初期胴体に一致しなくなる
+      btScalar temp1 = pos_data[7][0] - pos_data[0][0];
+      btScalar temp2 = pos_data[8][0] - pos_data[7][0];
+      btVector3 y1 = btVector3(0.f, temp1, 0.f);
+      btVector3 y2 = btVector3(0.f, temp2, 0.f);
+      btVector3 judge_cross = y2.cross(y1);
+      if(judge_cross.getX() >= 0.f)
+        angle_array[1] = -angle_array[1];
+*/
+
+      Rx = btMatrix3x3(1, 0, 0,
+                       0, btCos(angle_array[1]), -btSin(angle_array[1]),
+                       0, btSin(angle_array[1]), btCos(angle_array[1]));
+    }
+
+#ifdef JOINT_ANGLE_SHOW
+    b3Printf("abdomen_y = %f\n", (angle_array[1]*180)/M_PI);
+#endif
+
+    //
+    // calc abdomen_x angle
+    // 胴体と胴体をYZ平面に投影したベクトルとのなす角を計算
+    project_torso = btVector3(0.f, torso.getY(), torso.getZ());
+    d = torso.dot(project_torso);
+    N = torso.norm() * project_torso.norm();
+
+    // 初期胴体とXZ平面に投影した胴体との外積を計算
+    project_torso = btVector3(torso.getX(), 0.f, torso.getZ());
+    temp_crossVec = init_torso.cross(project_torso);
+
+    if(temp_crossVec.getY() >= 0)
+    {
+      // 体を左側に倒している時
+      angle_array[2] = -acos(d/N);
+      Ry = btMatrix3x3(btCos(-angle_array[2]), 0, btSin(-angle_array[2]),
+                       0, 1, 0, 
+                      -btSin(-angle_array[2]), 0, btCos(-angle_array[2]));
+    }
+    else
+    {
+      angle_array[2] = acos(d/N);
+      Ry = btMatrix3x3(btCos(-angle_array[2]), 0, btSin(-angle_array[2]),
+		       0, 1, 0, 
+		      -btSin(-angle_array[2]), 0, btCos(-angle_array[2]));
+    }
+
+#ifdef JOINT_ANGLE_SHOW
+    b3Printf("abdomen_x = %f\n", (angle_array[2]*180)/M_PI);
+#endif
+
+    // 初期胴体に一致するか確認
+    rot_mat = Rx*Ry;
+    rot_test1 = btVector3(rot_mat.tdotx(torso), rot_mat.tdoty(torso), rot_mat.tdotz(torso));
+    // b3Printf("baseline:torso   x =  %f y = %f z = %f\n", torso.getX(), torso.getY(), torso.getZ());
+    // b3Printf(" torso -> Init-Toros :: x = %f, y = %f, z = %f\n", rot_test1.getX()/rot_test1.norm(), rot_test1.getY()/rot_test1.norm(), rot_test1.getZ()/rot_test1.norm());
+
+    // 
+    // calc abdomen_z angle
+    // 胸部平面と下腹部平面の法線ベクトルのなす角をねじれとする
+    btScalar a_x = pos_data[1][0] - pos_data[8][0];
+    btScalar a_y = pos_data[1][1] - pos_data[8][1];
+    btScalar a_z = pos_data[1][2] - pos_data[8][2];
+    btVector3 a = btVector3(a_x, a_y, a_z);		// 下腹部平面内の1ベクトル
+    btScalar b_x = pos_data[4][0] - pos_data[8][0];
+    btScalar b_y = pos_data[4][1] - pos_data[8][1];
+    btScalar b_z = pos_data[4][2] - pos_data[8][2];
+    btVector3 b = btVector3(b_x, b_y, b_z);		// 下腹部平面内の1ベクトル
+    btVector3 waistPlane_crossVec = a.cross(b);	// 下腹部平面の法線ベクトル
+    btScalar a2_x = pos_data[11][0] - pos_data[0][0];
+    btScalar a2_y = pos_data[11][1] - pos_data[0][1];
+    btScalar a2_z = pos_data[11][2] - pos_data[0][2];
+    btVector3 a2 = btVector3(a2_x, a2_y, a2_z);		// 胸部平面内の1ベクトル
+    btScalar b2_x = pos_data[14][0] - pos_data[0][0];
+    btScalar b2_y = pos_data[14][1] - pos_data[0][1];
+    btScalar b2_z = pos_data[14][2] - pos_data[0][2];
+    btVector3 b2 = btVector3(b2_x, b2_y, b2_z);		// 胸部平面内の1ベクトル
+    btVector3 thoraxPlane_crossVec = a2.cross(b2);	// 胸部平面の法線ベクトル
+
+    // b3Printf("waistPlane_CrossVec :: x = %f, y = %f, z = %f\n", waistPlane_crossVec.getX(), waistPlane_crossVec.getY(), waistPlane_crossVec.getZ());
+    // b3Printf("thoraxPlane_CrossVec :: x = %f, y = %f, z = %f\n", thoraxPlane_crossVec.getX(), thoraxPlane_crossVec.getY(), thoraxPlane_crossVec.getZ());
+
+    // 胴体矯正後（初期位置に一致させた時）の下腹部と胴体の法線ベクトル
+    btVector3 rot_waistPlane_crossVec = btVector3(rot_mat.tdotx(waistPlane_crossVec), rot_mat.tdoty(waistPlane_crossVec), rot_mat.tdotz(waistPlane_crossVec));
+    btVector3 rot_thoraxPlane_crossVec = btVector3(rot_mat.tdotx(thoraxPlane_crossVec), rot_mat.tdoty(thoraxPlane_crossVec), rot_mat.tdotz(thoraxPlane_crossVec));
+    // btScalar norm = rot_waistPlane_crossVec.norm();
+    // b3Printf("rot_waistPlane_CrossVec :: x = %f, y = %f, z = %f\n", rot_waistPlane_crossVec.getX()/norm, rot_waistPlane_crossVec.getY()/norm, rot_waistPlane_crossVec.getZ()/norm);
+    // norm = rot_thoraxPlane_crossVec.norm();
+    // b3Printf("rot_thoraxPlane_CrossVec :: x = %f, y = %f, z = %f\n", rot_thoraxPlane_crossVec.getX()/norm, rot_thoraxPlane_crossVec.getY()/norm, rot_thoraxPlane_crossVec.getZ()/norm);
+
+    btVector3 project_rot_waistPlane_crossVec = rot_waistPlane_crossVec;
+    btVector3 project_rot_thoraxPlane_crossVec = rot_thoraxPlane_crossVec;
+    // 矯正後の法線ベクトルをXY平面に投影
+    project_rot_waistPlane_crossVec.setZ(0.f);
+    project_rot_thoraxPlane_crossVec.setZ(0.f);
+    //
+    // rot_waistPlane_crossVec = waistPlane_crossVec;
+    // rot_thoraxPlane_crossVec = thoraxPlane_crossVec;
+    // rot_waistPlane_crossVec.setZ(0.f);
+    // rot_thoraxPlane_crossVec.setZ(0.f);
+
+
+
+    // なす角を計算
+    d = project_rot_thoraxPlane_crossVec.dot(project_rot_waistPlane_crossVec);
+    N = project_rot_thoraxPlane_crossVec.norm() * project_rot_waistPlane_crossVec.norm();
+
+    // 外積により、下腹部から見て胸部がどっち向きにねじれているか確かめる
+    temp_crossVec = project_rot_waistPlane_crossVec.cross(project_rot_thoraxPlane_crossVec);
+    if(temp_crossVec.getZ() >= 0.0) 
+    {
+      // 胸部が初期位置より反時計回りに拗じられている時
+      angle_array[0] = acos(d/N);
+      Rz = btMatrix3x3(btCos(angle_array[0]), -btSin(angle_array[0]), 0,
+		       btSin(angle_array[0]), btCos(angle_array[0]), 0, 
+		       0, 0, 1);
+    }
+    else
+    {
+      angle_array[0] = -acos(d/N);
+      Rz = btMatrix3x3(btCos(angle_array[0]), -btSin(angle_array[0]), 0,
+		       btSin(angle_array[0]), btCos(angle_array[0]), 0, 
+		       0, 0, 1);
+    }
+
+#ifdef JOINT_ANGLE_SHOW
+    b3Printf("abdomen_z = %f\n", (angle_array[0]*180)/M_PI);
+#endif
+
+    // Z方向に回転させた時の胸部ベクトルと矯正後の下腹部ベクトルが同一平面上にあるか確認
+    // 法線ベクトルが一致しているか確かめる
+    // (-Rz*thorax)×waist = project_waist(On XY-Plane)×waistかどうか
+    // project_waist(On XY-Plane)×waist
+    // rot_test1 = project_rot_waistPlane_crossVec.cross(rot_waistPlane_crossVec);
+    // norm = rot_test1.norm();
+    // b3Printf("project_waist(On XY-Plane).cross(waist) :: x = %f y = %f z = %f\n", rot_test1.getX()/norm, rot_test1.getY()/norm, rot_test1.getZ()/norm);
+    // (-Rz*thorax)×waist
+    rot_test1 = btVector3(Rz.tdotx(rot_thoraxPlane_crossVec), Rz.tdoty(rot_thoraxPlane_crossVec), Rz.tdotz(rot_thoraxPlane_crossVec));
+    rot_test2 = rot_test1.cross(rot_waistPlane_crossVec);
+    norm = rot_test2.norm();
+    // b3Printf("(-Rz*thorax).cross(waist) -> XY-Plane):: x = %f y = %f z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
+  }
+  else
+  {
+    b3Printf("  Abdomen Is Not Estimated Correctly!\n");
+    angle_array[0] = NOT_ESTIMATED;
+    angle_array[1] = NOT_ESTIMATED;
+    angle_array[2] = NOT_ESTIMATED;
+  }
+#endif
+
+  // ------------------------------------------------------------
+
+#if 1 
+  //
+  // calc right_hip joint angle
+  //
+  if( judgeCalc(pos_data, 0, 1, 2) || judgeCalc(pos_data, 4, 1, 2))
+  {
+    b3Printf("    --- calc right_hip joint angle --- \n");
+
+    const btVector3 init_upper_leg = btVector3(0.f, 0.f, -1.f); // 初期上脚ベクトル
+    const btVector3 init_pelvis_vec = btVector3(1.f, 0.f, 0.f); // 初期骨盤ベクトル
+    const btVector3 init_pelvis_crossVec = btVector3(0.f, 0.f, 1.f); // 初期骨盤の法線ベクトル(初期骨盤がx軸上に存在しているので、z軸を法線ベクトルとする)
+
+    btScalar pelvis_x = 0.f; btScalar pelvis_y = 0.f; btScalar pelvis_z = 0.f; 
+
+    if(judgeCalc(pos_data, 4, 1, 2))
+    {
+      // 逆側のhipもちゃんと推定されている時
+      pelvis_x = pos_data[4][0] - pos_data[1][0];
+      pelvis_y = pos_data[4][1] - pos_data[1][1];
+      pelvis_z = pos_data[4][2] - pos_data[1][2];
+    }
+    else
+    {
+      // そうでない時は真ん中のhipを使う
+      pelvis_x = pos_data[0][0] - pos_data[1][0];
+      pelvis_y = pos_data[0][1] - pos_data[1][1];
+      pelvis_z = pos_data[0][2] - pos_data[1][2];
+    }
+
+    btVector3 pelvis = btVector3(pelvis_x, pelvis_y, pelvis_z);		// 現在の骨盤ベクトル
+
+    // 骨盤が初期位置からどれだけズレて（回転して）いるかを計算
+    // 初期骨盤平面の法線ベクトルと現在の骨盤ベクトルのなす角を計算
+    //  calc rotA  //
+    d = pelvis.dot(init_pelvis_crossVec);
+    N = pelvis.norm() * init_pelvis_crossVec.norm();
+
+    btVector3 project_pelvis = btVector3(pelvis.getX(), 0.0, pelvis.getZ());
+    temp_crossVec = init_pelvis_vec.cross(project_pelvis);
+    if(acos(d/N) <= M_PI/2)
+    // if(temp_crossVec.getY() >= 0.0)
+    {
+      // 現在の骨盤が平面より上側にある時
+      rotA = M_PI/2 - acos(d/N);
+      Ry = btMatrix3x3(btCos(-rotA), 0, btSin(-rotA),
+		       0, 1, 0,
+		      -btSin(-rotA), 0, btCos(-rotA));
+      // b3Printf("calc rotA (above plane) : rotA = %f\n", (rotA*180)/M_PI);
+    }
+    else
+    {
+      // 現在の骨盤が平面より下側にある時
+      rotA = acos(d/N) - (M_PI/2);
+      Ry = btMatrix3x3(btCos(rotA), 0, btSin(rotA),
+		       0, 1, 0,
+		      -btSin(rotA), 0, btCos(rotA));
+      // b3Printf("calc rotA (under plane) : rotA = %f\n", (rotA*180)/M_PI);
+    }
+
+    // 回転後の骨盤ベクトルと初期骨盤ベクトルのなす角を計算
+    // 	calc rotB  //
+    project_pelvis = btVector3(pelvis.getX(), pelvis.getY(), 0.0);
+    d = project_pelvis.dot(init_pelvis_vec);
+    N = project_pelvis.norm() * init_pelvis_vec.norm();
+    // rotBの回転方向を求める
+    temp_crossVec = init_pelvis_vec.cross(project_pelvis);
+    if(temp_crossVec.getZ() > 0.0) 
+    {
+      rotB = acos(d/N);
+      Rz = btMatrix3x3(btCos(rotB), -btSin(rotB), 0,
+		       btSin(rotB), btCos(rotB), 0,
+		       0, 0, 1);
+    }
+    else
+    {
+      rotB = -acos(d/N);
+      Rz = btMatrix3x3(btCos(rotB), -btSin(rotB), 0,
+		       btSin(rotB), btCos(rotB), 0,
+		       0, 0, 1);
+    }
+    // b3Printf("rotB = %f\n", (rotB*180)/M_PI);
+
+    btScalar a_x = pos_data[2][0] - pos_data[1][0];
+    btScalar a_y = pos_data[2][1] - pos_data[1][1];
+    btScalar a_z = pos_data[2][2] - pos_data[1][2];
+    btVector3 a = btVector3(a_x, a_y, a_z);		// 平面内の1ベクトル
+    btScalar b_x = pos_data[3][0] - pos_data[2][0];
+    btScalar b_y = pos_data[3][1] - pos_data[2][1];
+    btScalar b_z = pos_data[3][2] - pos_data[2][2];
+    btVector3 b = btVector3(b_x, b_y, b_z);		// 平面内の1ベクトル
+
+
+    // 上脚，下脚，骨盤を回転させる
+    rot_mat = Rz*Ry; // rot_mat : p0 -> p
+    btVector3 rot_pelvis = btVector3(rot_mat.tdotx(pelvis), rot_mat.tdoty(pelvis), rot_mat.tdotz(pelvis)); 
+    btVector3 rot_a = btVector3(rot_mat.tdotx(a), rot_mat.tdoty(a), rot_mat.tdotz(a)); 
+    btVector3 rot_b = btVector3(rot_mat.tdotx(b), rot_mat.tdoty(b), rot_mat.tdotz(b));
+
+    norm = rot_pelvis.norm();
+    // b3Printf(" baseline:pelvis -> Init-Pelvis :: x = %f, y = %f, z = %f\n", rot_pelvis.getX()/norm,rot_pelvis.getY()/norm, rot_pelvis.getZ()/norm);
+
+    // 初期脚平面の法線ベクトル(膝の回転軸と同じ)
+    btVector3 init_plane_crossVec = btVector3(-1.f, 0.f, 0.f);
+
+    //
+    //	calc right_hip_z angle
+    // ねじれを計算するため、矯正後の上脚ベクトルをXY平面に投影
+    btVector3 project_rot_a = btVector3(rot_a.getX(), rot_a.getY(), 0.0);
+    btVector3 plane_rot_a = -rot_a;
+    plane_crossVec = plane_rot_a.cross(rot_b);
+    btVector3 project_plane_crossVec = btVector3(plane_crossVec.getX(), plane_crossVec.getY(), 0.0);
+
+    // 初期脚平面の法線ベクトルとxy平面に投影した法線ベクトルとのなす角を計算
+    d = init_plane_crossVec.dot(project_plane_crossVec);
+    N = init_plane_crossVec.norm() * project_plane_crossVec.norm();
+    temp_crossVec = project_plane_crossVec.cross(init_plane_crossVec);
+
+    if(temp_crossVec.getZ() >= 0.0)
+    {
+      // 上から見て時計回りに脚をねじっている
+      angle_array[3] = -acos(d/N);
+    }
+    else
+    {
+      angle_array[3] = acos(d/N);
+    }
+    Rz = btMatrix3x3(btCos(angle_array[3]), -btSin(angle_array[3]), 0,
+		     btSin(angle_array[3]), btCos(angle_array[3]), 0,
+		     0, 0, 1);
+
+    b3Printf("right_hip_z = %f\n", (angle_array[3]*180)/M_PI);
+
+    // 
+    // calc right_hip_x angle
+    // XY平面に投影した脚平面の法線ベクトルと法線ベクトルのなす角を計算
+    project_plane_crossVec = btVector3(plane_crossVec.getX(), plane_crossVec.getY(), 0.0);
+    d = project_plane_crossVec.dot(plane_crossVec);
+    N = project_plane_crossVec.norm() * plane_crossVec.norm();
+
+    // 初期上脚とYZ平面に投影した矯正後の上脚の外積を計算
+    project_rot_a = btVector3(rot_a.getX(), 0.f, rot_a.getZ());
+    temp_crossVec = project_rot_a.cross(init_upper_leg);
+
+    if(temp_crossVec.getX() >= 0)
+    {
+      // 股を開いている
+      angle_array[4] = -acos(d/N);
+    }
+    else
+    {
+      angle_array[4] = acos(d/N);
+    }
+
+    Ry = btMatrix3x3(btCos(angle_array[4]), 0, btSin(angle_array[4]),
+		     0, 1, 0,
+		    -btSin(angle_array[4]), 0, btCos(angle_array[4]));
+
+    b3Printf("right_hip_x = %f\n", (angle_array[4]*180)/M_PI);
+
+    rot_mat = Rz*Ry;
+
+    // 脚平面の法線ベクトルがX軸負方向に一致するか確認
+    rot_test1 = btVector3(rot_mat.tdotx(plane_crossVec), rot_mat.tdoty(plane_crossVec), rot_mat.tdotz(plane_crossVec));
+    norm = rot_test1.norm();
+    // b3Printf(" baseline:leg-plane-crossVec -> Negative-X-Axis :: x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
+
+    // 
+    // calc right_hip_y angle
+    // 初期上脚と脚平面の法線ベクトルがX軸負方向に一致している時（XZ平面にある時）のなす角を計算
+    btVector3 rot_a2 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
+    d = init_upper_leg.dot(rot_a2);
+    N = init_upper_leg.norm() * rot_a2.norm();
+
+    temp_crossVec = rot_a2.cross(init_upper_leg);
+    if(temp_crossVec.getX() >= 0)
+    {
+      // 振り上げている
+      angle_array[5] = -acos(d/N);
+    }
+    else
+    {
+      angle_array[5] = acos(d/N);
+    }
+    Rx = btMatrix3x3(1, 0, 0,
+		     0, btCos(angle_array[5]), -btSin(angle_array[5]),
+		     0, btSin(angle_array[5]), btCos(angle_array[5]));
+
+    b3Printf("right_hip_y = %f\n", (angle_array[5]*180)/M_PI);
+
+    rot_mat = Rz*Ry*Rx; // Bullet :: Rz*Rx*Ry(回転行列), Z->X->Y(オイラー)
+
+    rot_test1 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
+    norm = rot_test1.norm();
+    // b3Printf(" baseline:upper_leg -> Init-UpperLeg :: x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
+  }
+  else
+  {
+    b3Printf("  Right Hip Is Not Estimated Correctly!\n");
+    angle_array[3] = NOT_ESTIMATED;
+    angle_array[4] = NOT_ESTIMATED;
+    angle_array[5] = NOT_ESTIMATED;
+  }
+#endif
+
+  // ------------------------------------------------------------
+
+#if 1
+  //
+  // calc right_knee joint angle
+  //
+  if( judgeCalc(pos_data, 1, 2, 3) )
+  {
+    b3Printf("    --- calc right_knee joint angle --- \n");
+    btScalar a_x = pos_data[1][0] - pos_data[2][0];
+    btScalar a_y = pos_data[1][1] - pos_data[2][1];
+    btScalar a_z = pos_data[1][2] - pos_data[2][2];
+    btVector3 a = -btVector3(a_x, a_y, a_z);
+    btScalar b_x = pos_data[3][0] - pos_data[2][0];
+    btScalar b_y = pos_data[3][1] - pos_data[2][1];
+    btScalar b_z = pos_data[3][2] - pos_data[2][2];
+    btVector3 b = btVector3(b_x, b_y, b_z);
+    d = a.dot(b);
+    N = a.norm() * b.norm();
+    angle_array[6] = -acos(d/N);
+    b3Printf("right_knee = %f\n", (angle_array[6]*180)/M_PI);
+  }
+  else
+  {
+    b3Printf("  Right Knee Is Not Estimated Correctly!\n");
+    angle_array[6] = NOT_ESTIMATED;
+  }
+#endif
+
+  // ------------------------------------------------------------
+
+#if 1
+  //
+  // calc left_hip joint angle
+  //
+  if( judgeCalc(pos_data, 0, 4, 5) || judgeCalc(pos_data, 1, 4, 5)) 
+  {
+    b3Printf("    --- calc left_hip joint angle --- \n");
+    const btVector3 init_upper_leg = btVector3(0.f, 0.f, -1.f); // 初期上脚ベクトル
+    const btVector3 init_pelvis_vec = btVector3(-1.f, 0.f, 0.f); // 初期骨盤ベクトル
+    const btVector3 init_pelvis_crossVec = btVector3(0.f, 0.f, 1.f); // 初期骨盤の法線ベクトル(初期骨盤がx軸上に存在しているので、z軸を法線ベクトルとする)
+
+    btScalar pelvis_x = 0.f; btScalar pelvis_y = 0.f; btScalar pelvis_z = 0.f; 
+
+    if( judgeCalc(pos_data, 1, 4, 5) )
+    {	
+      pelvis_x = pos_data[1][0] - pos_data[4][0];
+      pelvis_y = pos_data[1][1] - pos_data[4][1];
+      pelvis_z = pos_data[1][2] - pos_data[4][2];
+    }
+    else
+    {
+      pelvis_x = pos_data[0][0] - pos_data[4][0];
+      pelvis_y = pos_data[0][1] - pos_data[4][1];
+      pelvis_z = pos_data[0][2] - pos_data[4][2];
+    }
+    btVector3 pelvis = btVector3(pelvis_x, pelvis_y, pelvis_z);	// 骨盤ベクトル
+    // 初期骨盤平面の法線ベクトルと現在の骨盤ベクトルのなす角を計算
+    //  calc rotA  //
+    d = pelvis.dot(init_pelvis_crossVec);
+    N = pelvis.norm() * init_pelvis_crossVec.norm();
+
+    btVector3 project_pelvis = btVector3(pelvis.getX(), 0.0, pelvis.getZ());
+    temp_crossVec = init_pelvis_vec.cross(project_pelvis);
+    if(acos(d/N) <= M_PI/2)
+    // if(temp_crossVec.getY() >= 0.0)
+    {
+      // 現在の骨盤が平面より上側にある時
+      rotA = M_PI/2 - acos(d/N);
+      Ry = btMatrix3x3(btCos(rotA), 0, btSin(rotA),
+		       0, 1, 0, 
+		      -btSin(rotA), 0, btCos(rotA));
+      // b3Printf("calc rotA (above plane) : rotA = %f\n", (rotA*180)/M_PI);
+    }
+    else
+    {
+      // 現在の骨盤が平面より下側にある時
+      rotA = acos(d/N) - (M_PI/2);
+      Ry = btMatrix3x3(btCos(-rotA), 0, btSin(-rotA),
+		       0, 1, 0, 
+		      -btSin(-rotA), 0, btCos(-rotA));
+      // b3Printf("calc rotA (under plane) : rotA = %f\n", (rotA*180)/M_PI);
+    }
+
+    // 回転後の骨盤ベクトルと初期骨盤ベクトルのなす角を計算
+    // 	calc rotB  //	
+    project_pelvis = btVector3(pelvis.getX(), pelvis.getY(), 0.0);
+    d = project_pelvis.dot(init_pelvis_vec);
+    N = project_pelvis.norm() * init_pelvis_vec.norm();
+    // rotBの回転方向を求める
+    temp_crossVec = init_pelvis_vec.cross(project_pelvis);
+    if(temp_crossVec.getZ() > 0.0) 
+    {
+      rotB = acos(d/N);
+      Rz = btMatrix3x3(btCos(rotB), -btSin(rotB), 0,
+		       btSin(rotB), btCos(rotB), 0, 
+		       0, 0, 1);
+    }
+    else
+    {
+      rotB = -acos(d/N);
+      Rz = btMatrix3x3(btCos(rotB), -btSin(rotB), 0,
+		       btSin(rotB), btCos(rotB), 0, 
+		       0, 0, 1);
+    }
+    // b3Printf("calc rotB : rotB = -%f\n", (rotB*180)/M_PI);
+
+    // 骨盤の初期姿勢からの回転分を矯正する（上脚と下脚に回転行列をかける）
+    btScalar a_x = pos_data[5][0] - pos_data[4][0];
+    btScalar a_y = pos_data[5][1] - pos_data[4][1];
+    btScalar a_z = pos_data[5][2] - pos_data[4][2];
+    btVector3 a = btVector3(a_x, a_y, a_z);		// 平面内の1ベクトル
+    btScalar b_x = pos_data[6][0] - pos_data[5][0];
+    btScalar b_y = pos_data[6][1] - pos_data[5][1];
+    btScalar b_z = pos_data[6][2] - pos_data[5][2];
+    btVector3 b = btVector3(b_x, b_y, b_z);		// 平面内の1ベクトル
+
+    // 上脚，下脚，骨盤を回転させる
+    rot_mat = Rz*Ry; 
+    btVector3 rot_pelvis = btVector3(rot_mat.tdotx(pelvis), rot_mat.tdoty(pelvis), rot_mat.tdotz(pelvis)); 
+    btVector3 rot_a = btVector3(rot_mat.tdotx(a), rot_mat.tdoty(a), rot_mat.tdotz(a)); 
+    btVector3 rot_b = btVector3(rot_mat.tdotx(b), rot_mat.tdoty(b), rot_mat.tdotz(b));
+
+    // 骨盤ベクトルを初期骨盤へ回転
+    rot_test2 = btVector3(rot_mat.tdotx(pelvis), rot_mat.tdoty(pelvis), rot_mat.tdotz(pelvis));
+    norm = rot_test2.norm();
+    // b3Printf("baseline:pelvis -> Init-Pelvis :: x = %f, y = %f, z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
+
+
+    if( judgeCalc(pos_data, 4, 5, 6) ) // 脚のひねりも計算できる時(足首まで推定されている時)
+    {
+      
+      const btVector3 init_plane_crossVec = btVector3(1.f, 0.f, 0.f);
+
+      //
+      // calc left_hip_z angle
+      // ねじれを計算するため、矯正後の上脚ベクトルをXY平面に投影
+      btVector3 project_rot_a = btVector3(rot_a.getX(), rot_a.getY(), 0.0);	
+      btVector3 plane_rot_a = -rot_a;
+      plane_crossVec = rot_b.cross(plane_rot_a);
+      /*
+      if(plane_crossVec.getX() <= 0.f )
+      {
+	b3Printf("change cross order\n");
+	plane_crossVec = plane_rot_a.cross(rot_b);
+      }
+      */
+      // b3Printf("plane_crossVec :: x = %f, y = %f, z = %f\n", plane_crossVec.getX(),plane_crossVec.getY(), plane_crossVec.getZ());
+
+      btVector3 project_plane_crossVec = btVector3(plane_crossVec.getX(), plane_crossVec.getY(), 0.0);
+      // 初期脚平面の法線ベクトルとxy平面に投影した法線ベクトルとのなす角を計算
+      d = init_plane_crossVec.dot(project_plane_crossVec);
+      N = init_plane_crossVec.norm() * project_plane_crossVec.norm();
+      temp_crossVec = project_plane_crossVec.cross(init_plane_crossVec);
+
+      if(temp_crossVec.getZ() >= 0.0)
+      {
+	// 上から見て時計回りに脚をねじっている
+	angle_array[9] = -acos(d/N);
+      }
+      else
+      {
+	angle_array[9] = acos(d/N);
+      }
+
+      Rz = btMatrix3x3(btCos(angle_array[9]), -btSin(angle_array[9]), 0,
+		       btSin(angle_array[9]), btCos(angle_array[9]), 0,
+		       0, 0, 1);
+
+      b3Printf("left_hip_z = %f\n", (angle_array[9]*180)/M_PI);
+
+      // 
+      // calc left_hip_x angle
+      // XY平面に投影した脚平面の法線ベクトルと法線ベクトルのなす角を計算
+      project_plane_crossVec = btVector3(plane_crossVec.getX(), plane_crossVec.getY(), 0.0);
+      d = project_plane_crossVec.dot(plane_crossVec);
+      N = project_plane_crossVec.norm() * plane_crossVec.norm();
+
+      // 初期法線ベクトルと法線ベクトルをXZ平面に投影したベクトルの外積を計算
+      project_plane_crossVec = btVector3(plane_crossVec.getX(), 0.f, plane_crossVec.getZ());
+      temp_crossVec = project_plane_crossVec.cross(init_plane_crossVec);
+      if(temp_crossVec.getY() >= 0)
+      {
+	// 股を開いている 
+	angle_array[10] = -acos(d/N);
+      }
+      else
+      {
+	angle_array[10] = acos(d/N);
+      }
+
+      Ry = btMatrix3x3(btCos(angle_array[10]), 0, btSin(angle_array[10]),
+		       0, 1, 0,
+		      -btSin(angle_array[10]), 0, btCos(angle_array[10]));
+
+      b3Printf("left_hip_x = %f\n", (angle_array[10]*180)/M_PI);
+
+      rot_mat = Rz*Ry;
+
+      // 脚平面の法線ベクトルがX軸負方向に一致するか確認
+      rot_test1 = btVector3(rot_mat.tdotx(plane_crossVec), rot_mat.tdoty(plane_crossVec), rot_mat.tdotz(plane_crossVec));
+      norm = rot_test1.norm();
+      // b3Printf("baseline:leg-plane-crossVec -> Positive-X-Axis  x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
+
+      //
+      // calc left_hip_y angle
+      // 初期上脚と脚平面の法線ベクトルがX軸負方向に一致している時（XZ平面にある時）のなす角を計算
+      btVector3 rot_a2 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
+      // b3Printf("rot_a2 :: x = %f, y = %f, z = %f\n", rot_a2.getX(), rot_a2.getY(), rot_a2.getZ());
+      
+      d = init_upper_leg.dot(rot_a2);
+      N = init_upper_leg.norm() * rot_a2.norm();
+
+      temp_crossVec = rot_a2.cross(init_upper_leg);
+
+      if(temp_crossVec.getX() >= 0)
+      {
+	// 振り上げている
+	angle_array[11] = -acos(d/N);
+      }
+      else
+      {
+	angle_array[11] = acos(d/N);
+      }
+
+      Rx = btMatrix3x3(1, 0, 0,
+		       0, btCos(angle_array[11]), -btSin(angle_array[11]),
+		       0, btSin(angle_array[11]), btCos(angle_array[11]));
+
+      b3Printf("left_hip_y = %f\n", (angle_array[11]*180)/M_PI);
+
+      rot_mat = Rz*Ry*Rx; // Bullet :: Rz*Rx*Ry(回転行列), Z->X->Y(オイラー)
+
+      rot_test2 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
+      norm = rot_test2.norm();
+      // b3Printf("baseline:upper_leg -> Init-UpperLeg :: x = %f, y = %f, z = %f\n", rot_test2.getX()/norm,rot_test2.getY()/norm, rot_test2.getZ()/norm);
+    }
+
+#if 1
+    // 下脚が推定できておらず、脚平面の法線ベクトルがわからない時
+    // 初期上脚と矯正後の上脚の位置から股関節角度を決定する
+    else
+    {
+      const btVector3 negative_Y_axis = btVector3(0.f, -1.f, 0.f);
+      //
+      // calc left_hip_z angle
+      // XY平面に投影した上脚とY軸不方向とのなす角を計算 
+      btVector3 project_rot_a = btVector3(rot_a.getX(), rot_a.getY(), 0.0);	
+      d = negative_Y_axis.dot(project_rot_a);
+      N = negative_Y_axis.norm() * project_rot_a.norm();
+      temp_crossVec = negative_Y_axis.cross(project_rot_a);
+
+      if(temp_crossVec.getZ() >= 0.0)
+      {
+	// 上から見て時計回りに脚をねじっている
+	angle_array[9] = acos(d/N); 
+      }
+      else
+      {
+        angle_array[9] = -acos(d/N); 
+      }
+
+      Rz = btMatrix3x3(btCos(angle_array[9]), -btSin(angle_array[9]), 0,
+		       btSin(angle_array[9]), btCos(angle_array[9]), 0, 
+		       0, 0, 1);
+      
+      b3Printf("left_hip_z = %f\n", (angle_array[9]*180)/M_PI);
+
+      //
+      // calc left_hip_y angle
+      // 上脚ベクトルをYZ平面に投影したベクトルと初期上脚のなす角を計算
+      project_rot_a = btVector3(0.f, rot_a.getY(), rot_a.getZ());
+
+      d = init_upper_leg.dot(rot_a);
+      N = init_upper_leg.norm() * rot_a.norm();
+      temp_crossVec = rot_a.cross(init_upper_leg);
+
+      if(temp_crossVec.getX() >= 0)
+      {
+	// 振り上げている
+	angle_array[11] = -acos(d/N);
+      }
+      else
+      {
+	angle_array[11] = acos(d/N);
+      }
+
+      Rx = btMatrix3x3(1, 0, 0,
+		       0, btCos(angle_array[11]), -btSin(angle_array[11]),
+		       0, btSin(angle_array[11]), btCos(angle_array[11]));
+
+      b3Printf("left_hip_y = %f\n", (angle_array[11]*180)/M_PI);
+
+      rot_mat = Rz*Rx;
+
+      // 矯正後の上脚が初期上脚に一致するか確認
+      rot_test1 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
+      norm = rot_test1.norm();
+      // b3Printf("baseline:rot_upper_leg -> Init-UpperLeg :: x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
+    }
+#endif
+  }
+  else
+  {
+    b3Printf("  Left Hip Is Not Estimated Correctly!\n");
+    angle_array[9] = NOT_ESTIMATED;
+    angle_array[10] = NOT_ESTIMATED;
+    angle_array[11] = NOT_ESTIMATED;
+  }
+#endif
+
+  // ------------------------------------------------------------
+
+#if 1
+  //
+  // calc left_knee joint angle
+  //
+  if( judgeCalc(pos_data, 4, 5, 6) )
+  {
+    btScalar a_x = pos_data[4][0] - pos_data[5][0];
+    btScalar a_y = pos_data[4][1] - pos_data[5][1];
+    btScalar a_z = pos_data[4][2] - pos_data[5][2];
+    btVector3 a = -btVector3(a_x, a_y, a_z);
+    btScalar b_x = pos_data[6][0] - pos_data[5][0];
+    btScalar b_y = pos_data[6][1] - pos_data[5][1];
+    btScalar b_z = pos_data[6][2] - pos_data[5][2];
+    btVector3 b = btVector3(b_x, b_y, b_z);
+    d = a.dot(b);
+    N = a.norm() * b.norm();
+    angle_array[12] = -acos(d/N);
+    b3Printf("left_knee = %f\n", (angle_array[12]*180)/M_PI);
+  }
+  else
+  {
+    b3Printf("  Left Knee Is Not Estimated Correctly!\n");
+    angle_array[12] = NOT_ESTIMATED;
+  }
+#endif
+
+  // ------------------------------------------------------------
+
+#if 1 
+  // 
+  // calc right_shoulder joint angle
+  //
+  if( judgeCalc(pos_data, 8, 14, 15) || judgeCalc(pos_data, 11, 14, 15) )
+  {
+    b3Printf("    --- calc right_shoulder joint angle --- \n");
+
+    const btVector3 init_shoulder_vec = btVector3(1.f, 0.f, 0.f); // 初期肩ベクトル
+    const btVector3 init_shoulder_crossVec = btVector3(0.f, 0.f, 1.f); // 初期肩平面の法線ベクトル(今は初期肩がx軸上に存在しているので、z軸を法線ベクトルとする)
+
+    btScalar shoulder_x = 0.f, shoulder_y = 0.f, shoulder_z = 0.f;
+    if( judgeCalc(pos_data, 11, 14, 15) )
+    {
+      // 逆側の肩がちゃんと推定されている時
+      shoulder_x = pos_data[11][0] - pos_data[14][0];
+      shoulder_y = pos_data[11][1] - pos_data[14][1];
+      shoulder_z = pos_data[11][2] - pos_data[14][2];
+    }
+    else
+    {
+      // そうでない時、Thoraxを使う
+      shoulder_x = pos_data[8][0] - pos_data[14][0];
+      shoulder_y = pos_data[8][1] - pos_data[14][1];
+      shoulder_z = pos_data[8][2] - pos_data[14][2];
+    }
+
+    btVector3 shoulder = btVector3(shoulder_x, shoulder_y, shoulder_z); // 肩ベクトル
+
+    // 初期骨盤平面の法線ベクトルと現在の肩ベクトルのなす角を計算
+    //  calc rotA  //
+    d = shoulder.dot(init_shoulder_crossVec);
+    N = shoulder.norm() * init_shoulder_crossVec.norm();
+
+    btVector3 project_shoulder = btVector3(shoulder.getX(), shoulder.getY(), 0.f);
+    // d = shoulder.dot(project_shoulder);
+    // N = shoulder.norm() * project_shoulder.norm();
+
+    // project_shoulder = btVector3(shoulder.getX(), 0.f, shoulder.getZ());
+    // temp_crossVec = init_shoulder_vec.cross(project_shoulder);
+
+    if(acos(d/N) <= M_PI/2)
+    // if(temp_crossVec.getY() <= 0.f)
+    {
+      // 現在の肩が平面より上側にある時
+      rotA = M_PI/2 - acos(d/N);
+      Ry = btMatrix3x3(btCos(rotA), 0, btSin(rotA),
+		       0, 1, 0,
+		      -btSin(rotA), 0, btCos(rotA));
+      // b3Printf("calc rotA (above plane) : rotA = %f\n", (rotA*180)/M_PI);
+    }
+    else
+    {
+      // 現在の肩が平面より下側にある時
+      rotA = acos(d/N) - (M_PI/2);
+      Ry = btMatrix3x3(btCos(-rotA), 0, btSin(-rotA),
+		       0, 1, 0,
+		      -btSin(-rotA), 0, btCos(-rotA));
+      // b3Printf("calc rotA (under plane) : rotA = %f\n", (rotA*180)/M_PI);
+    }
+
+    // 投影後の肩ベクトルと初期肩ベクトルのなす角を計算
+    //  calc rotB  //
+    project_shoulder = btVector3(shoulder.getX(), shoulder.getY(), 0.f);
+    d = project_shoulder.dot(init_shoulder_vec);
+    N = project_shoulder.norm() * init_shoulder_vec.norm();
+    // rotBの回転方向を求める
+    temp_crossVec = init_shoulder_vec.cross(project_shoulder);
+
+    if(temp_crossVec.getZ() > 0.0)
+    {
+      rotB = acos(d/N);
+      Rz = btMatrix3x3(btCos(rotB), -btSin(rotB), 0,
+      btSin(rotB), btCos(rotB), 0,
+      0, 0, 1);
+    }
+    else
+    {
+      rotB = -acos(d/N);
+      Rz = btMatrix3x3(btCos(rotB), -btSin(rotB), 0,
+		       btSin(rotB), btCos(rotB), 0,
+		       0, 0, 1);
+    }
+
+    // b3Printf("calc rotB  : rotB = %f\n", (rotB*180)/M_PI);
+    
+    // 初期姿勢からの回転分を矯正する
+    btScalar a_x = pos_data[15][0] - pos_data[14][0];
+    btScalar a_y = pos_data[15][1] - pos_data[14][1];
+    btScalar a_z = pos_data[15][2] - pos_data[14][2];
+    // 上腕ベクトル
+    btVector3 a = btVector3(a_x, a_y, a_z);		// 平面内の1ベクトル
+    btScalar b_x = pos_data[16][0] - pos_data[15][0];
+    btScalar b_y = pos_data[16][1] - pos_data[15][1];
+    btScalar b_z = pos_data[16][2] - pos_data[15][2];
+    // 前腕ベクトル
+    btVector3 b = btVector3(b_x, b_y, b_z);		// 平面内の1ベクトル
+
+    rot_mat = Rz*Ry;
+
+    btVector3 rot_shoulder = btVector3(rot_mat.tdotx(shoulder), rot_mat.tdoty(shoulder), rot_mat.tdotz(shoulder));
+    btVector3 rot_a = btVector3(rot_mat.tdotx(a), rot_mat.tdoty(a), rot_mat.tdotz(a));
+    btVector3 rot_b = btVector3(rot_mat.tdotx(b), rot_mat.tdoty(b), rot_mat.tdotz(b));
+
+    // 肩が初期肩に一致するか確認
+    rot_test2 = btVector3(rot_mat.tdotx(shoulder), rot_mat.tdoty(shoulder), rot_mat.tdotz(shoulder));
+    norm = rot_test2.norm();
+    // b3Printf("baseline:shoulder -> Init-Shoulder :: x = %f y = %f z = %f\n", rot_test2.getX()/norm,rot_test2.getY()/norm, rot_test2.getZ()/norm);
+
+
+    // 関節角度計算
+    const btVector3 init_upper_arm = btVector3(0.f, 0.f, -1.f);
+    const btVector3 negative_Y_axis = btVector3(0.f, -1.f, 0.f);
+
+    // 
+    // calc right_shoulder_z angle
+    btVector3 project_rot_a = btVector3(rot_a.getX(), rot_a.getY(), 0.0);
+    btVector3 plane_rot_a = -rot_a;
+    plane_crossVec = rot_b.cross(plane_rot_a);
+    btVector3 project_plane_crossVec = btVector3(plane_crossVec.getX(), plane_crossVec.getY(), 0.0);
+
+    // Y軸負方向（初期法線ベクトル）とxy平面に投影した法線ベクトルとのなす角を計算
+    d = negative_Y_axis.dot(project_plane_crossVec);
+    N = negative_Y_axis.norm() * project_plane_crossVec.norm();
+    temp_crossVec = project_plane_crossVec.cross(negative_Y_axis);
+    // temp_crossVec = negative_Y_axis.cross(project_plane_crossVec);
+
+    if(temp_crossVec.getZ() >= 0.0)
+    {
+      // 上から見て反時計回りに腕をねじっている
+      angle_array[15] = -acos(d/N);
+      // angle_array[15] = acos(d/N);
+    }
+    else
+    {
+      angle_array[15] = acos(d/N);
+      // angle_array[15] = -acos(d/N);
+    }
+
+    Rz = btMatrix3x3(btCos(angle_array[15]), -btSin(angle_array[15]), 0,
+		     btSin(angle_array[15]), btCos(angle_array[15]), 0,
+		     0, 0, 1);
+
+    b3Printf("right_shoulder_z = %f\n", (angle_array[15]*180)/M_PI);
+
+    //
+    // calc right_shoulder_y angle
+    // xy平面に投影した腕平面の法線ベクトルと法線ベクトルのなす角を計算
+    d = project_plane_crossVec.dot(plane_crossVec);
+    N = project_plane_crossVec.norm() * plane_crossVec.norm();
+
+    // 初期上腕とYZ平面に投影した矯正後の上腕の外積を計算
+    project_rot_a = btVector3(0.f, rot_a.getY(), rot_a.getZ());
+    temp_crossVec = project_rot_a.cross(init_upper_arm);
+
+    if(temp_crossVec.getX() >= 0)
+    {
+      // 振り上げている
+      angle_array[16] = -acos(d/N);
+      // btScalar margin = (20.f*M_PI)/180.f;
+      // angle_array[16] = -(acos(d/N)+margin);
+    }
+    else
+    {
+      angle_array[16] = acos(d/N);
+    }
+
+    Rx = btMatrix3x3(1, 0, 0,
+ 		     0, btCos(angle_array[16]), -btSin(angle_array[16]),
+		     0, btSin(angle_array[16]), btCos(angle_array[16]));
+
+    b3Printf("right_shoulder_y = %f\n", (angle_array[16]*180)/M_PI);
+
+    rot_mat = Rz*Rx;
+
+    // 腕平面の法線ベクトルがY軸負方向に一致するか確認
+    rot_test1 = btVector3(rot_mat.tdotx(plane_crossVec), rot_mat.tdoty(plane_crossVec), rot_mat.tdotz(plane_crossVec));
+    norm = rot_test1.norm();
+    // b3Printf("baseline:arm-plane-crossVec -> Negative-Y-Axis  x = %f, y = %f, z = %f\n", rot_test1.getX()/norm, rot_test1.getY()/norm, rot_test1.getZ()/norm);
+
+    //
+    // calc right_shoulder_x angle
+    // 初期上腕と腕平面の法線ベクトルがY軸負方向に一致している時（xz平面にある時）のなす角を計算
+    btVector3 rot_a2 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
+    d = init_upper_arm.dot(rot_a2);
+    N = init_upper_arm.norm() * rot_a2.norm();
+
+    temp_crossVec = rot_a2.cross(init_upper_arm);
+
+    if(temp_crossVec.getY() >= 0)
+    {
+      // 脇を開いている
+      angle_array[17] = -acos(d/N);
+      angle_array[17] = acos(d/N);
+    }
+    else
+    {
+      angle_array[17] = acos(d/N);
+      angle_array[17] = -acos(d/N);
+    }
+
+    Ry = btMatrix3x3(btCos(-angle_array[17]), 0, btSin(-angle_array[17]),
+		     0, 1, 0,
+		    -btSin(-angle_array[17]), 0, btCos(-angle_array[17]));
+
+    b3Printf("right_shoulder_x = %f\n", (angle_array[17]*180)/M_PI);
+
+    rot_mat = Rz*Rx*Ry; // Bullet :: Rz*Ry*Rx(回転行列), Z->Y->X(オイラー)
+
+    rot_test2 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
+    norm = rot_test2.norm();
+    // b3Printf("baseline:upper_arm -> Init-UpperArm  x = %f, y = %f, z = %f\n", rot_test2.getX()/norm,rot_test2.getY()/norm, rot_test2.getZ()/norm);
+  }
+  else
+  {
+    b3Printf("  Right Shoulder Is Not Estimated Correctly!\n");
+    angle_array[15] = NOT_ESTIMATED;
+    angle_array[16] = NOT_ESTIMATED;
+    angle_array[17] = NOT_ESTIMATED;
+  }
+#endif
+
+  // ------------------------------------------------------------
+
+#if 1
+  //
+  // calc right_elbow joint angle
+  //
+  if( judgeCalc(pos_data, 14, 15, 16) )
+  {
+
+    b3Printf("    --- calc right_elbow joint angle --- \n");
+    btScalar a_x = pos_data[14][0] - pos_data[15][0];
+    btScalar a_y = pos_data[14][1] - pos_data[15][1];
+    btScalar a_z = pos_data[14][2] - pos_data[15][2];
+    btVector3 a = -btVector3(a_x, a_y, a_z);
+    btScalar b_x = pos_data[16][0] - pos_data[15][0];
+    btScalar b_y = pos_data[16][1] - pos_data[15][1];
+    btScalar b_z = pos_data[16][2] - pos_data[15][2];
+    btVector3 b = btVector3(b_x, b_y, b_z);
+    d = a.dot(b);
+    N = a.norm() * b.norm();
+    angle_array[18] = acos(d/N);
+    b3Printf("right_elbow = %f\n", (angle_array[18]*180)/M_PI);
+  }
+  else
+  {
+    b3Printf("  Righe Elbow Is Not Estimated Correctly!\n");
+    angle_array[18] = NOT_ESTIMATED;
+  }
+#endif
+
+  // ------------------------------------------------------------
+
+#if 1
+  //
+  // calc left_shoulder joint angle
+  //
+  if( judgeCalc(pos_data, 8, 11, 12) || judgeCalc(pos_data, 14, 11, 12) ) 
+  {
+    b3Printf("    --- calc left_shoulder joint angle --- \n");
+
+    const btVector3 init_shoulder_vec = btVector3(-1.f, 0.f, 0.f); // 初期肩ベクトル
+    const btVector3 init_shoulder_crossVec = btVector3(0.f, 0.f, 1.f); // 初期肩平面の法線ベクトル(今は初期肩がx軸上に存在しているので、z軸を法線ベクトルとする）
+
+    btScalar shoulder_x = 0.f, shoulder_y = 0.f, shoulder_z = 0.f;
+    if( judgeCalc(pos_data, 14, 11, 12) ) 
+    {
+      shoulder_x = pos_data[14][0] - pos_data[11][0];
+      shoulder_y = pos_data[14][1] - pos_data[11][1];
+      shoulder_z = pos_data[14][2] - pos_data[11][2];
+    }
+    else
+    {
+      shoulder_x = pos_data[8][0] - pos_data[11][0];
+      shoulder_y = pos_data[8][1] - pos_data[11][1];
+      shoulder_z = pos_data[8][2] - pos_data[11][2];
+    }
+
+    btVector3 shoulder = btVector3(shoulder_x, shoulder_y, shoulder_z);		// 肩ベクトル
+
+    // 初期肩平面の法線ベクトルと現在の肩ベクトルのなす角を計算
+    //  calc rotA  //
+    d = shoulder.dot(init_shoulder_crossVec);
+    N = shoulder.norm() * init_shoulder_crossVec.norm();
+
+    btVector3 project_shoulder = btVector3(shoulder.getX(), 0.f, shoulder.getZ());
+    if(acos(d/N) <= M_PI/2)
+    // if(temp_crossVec.getY() >= 0.0)
+    {
+      // 現在の肩が平面より上側にある時
+      rotA = acos(d/N) - (M_PI/2);
+      Ry = btMatrix3x3(btCos(-rotA), 0, btSin(-rotA),
+		       0, 1, 0, 
+		      -btSin(-rotA), 0, btCos(-rotA));
+      // b3Printf("calc rotA (above plane) : rotA = %f\n", (rotA*180)/M_PI);
+    }
+    else
+    {
+      // 現在の肩が平面より下側にある時
+      rotA = M_PI/2 - acos(d/N);
+      Ry = btMatrix3x3(btCos(rotA), 0, btSin(rotA),
+		       0, 1, 0, 
+		      -btSin(rotA), 0, btCos(rotA));
+      // b3Printf("calc rotA (under plane) : rotA = %f\n", (rotA*180)/M_PI);
+    }
+
+    // 投影後の肩ベクトルと初期肩ベクトルのなす角を計算
+    //  calc rotB  //
+    project_shoulder = btVector3(shoulder.getX(), shoulder.getY(), 0.f);
+    d = project_shoulder.dot(init_shoulder_vec);
+    N = project_shoulder.norm() * init_shoulder_vec.norm();
+    // rotBの回転方向を求める
+    temp_crossVec = init_shoulder_vec.cross(project_shoulder);
+    
+    if(temp_crossVec.getZ() > 0.0)
+    {
+      rotB = acos(d/N);
+      Rz = btMatrix3x3(btCos(rotB), -btSin(rotB), 0,
+		       btSin(rotB), btCos(rotB), 0, 
+		       0, 0, 1);
+    }
+    else
+    {
+      rotB = -acos(d/N);
+      Rz = btMatrix3x3(btCos(rotB), -btSin(rotB), 0,
+		       btSin(rotB), btCos(rotB), 0, 
+		       0, 0, 1);
+    }
+
+    // b3Printf("calc rotB : rotB = %f\n", (rotB*180)/M_PI);
+
+    // 初期姿勢からの回転分を矯正する（上腕（と前腕）に回転行列をかける）
+    btScalar a_x = pos_data[12][0] - pos_data[11][0];
+    btScalar a_y = pos_data[12][1] - pos_data[11][1];
+    btScalar a_z = pos_data[12][2] - pos_data[11][2];
+    // 上腕ベクトル
+    btVector3 a = btVector3(a_x, a_y, a_z);		// 平面内の1ベクトル
+    // 前腕ベクトル
+    btScalar b_x = pos_data[13][0] - pos_data[12][0];
+    btScalar b_y = pos_data[13][1] - pos_data[12][1];
+    btScalar b_z = pos_data[13][2] - pos_data[12][2];
+    btVector3 b = btVector3(b_x, b_y, b_z);		
+
+    rot_mat = Rz*Ry;
+
+    btVector3 rot_shoulder = btVector3(rot_mat.tdotx(shoulder), rot_mat.tdoty(shoulder), rot_mat.tdotz(shoulder));
+    btVector3 rot_a = btVector3(rot_mat.tdotx(a), rot_mat.tdoty(a), rot_mat.tdotz(a));
+    btVector3 rot_b = btVector3(rot_mat.tdotx(b), rot_mat.tdoty(b), rot_mat.tdotz(b));
+
+    rot_test2 = btVector3(rot_mat.tdotx(shoulder), rot_mat.tdoty(shoulder), rot_mat.tdotz(shoulder));
+    norm = rot_test2.norm();
+    // b3Printf("baseline:shoulder -> Init-Shoulder :: x = %f y = %f z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
+
+
+    // 関節角度計算
+    const btVector3 init_upper_arm = btVector3(0.f, 0.f, -1.f); 
+    const btVector3 negative_Y_axis = btVector3(0.f, -1.f, 0.f);
+
+    // 
+    // calc left_shoulder_z angle
+    btVector3 project_rot_a = btVector3(rot_a.getX(), rot_a.getY(), 0.0);	
+    btVector3 plane_rot_a = -rot_a;
+    plane_crossVec = plane_rot_a.cross(rot_b);
+    btVector3 project_plane_crossVec = btVector3(plane_crossVec.getX(), plane_crossVec.getY(), 0.0);
+    // Y軸負方向（初期法線ベクトル）とxy平面に投影した法線ベクトルとのなす角を計算
+    d = negative_Y_axis.dot(project_plane_crossVec);
+    N = negative_Y_axis.norm() * project_plane_crossVec.norm();
+    temp_crossVec = negative_Y_axis.cross(project_plane_crossVec);
+
+    // if(a_x > 0)
+    if(temp_crossVec.getZ() >= 0.0)
+    {
+      // 上から見て時計回りに腕をねじっている
+      angle_array[19] = acos(d/N); 
+    }
+    else
+    {
+      angle_array[19] = -acos(d/N); 
+    }
+
+
+    Rz = btMatrix3x3(btCos(angle_array[19]), -btSin(angle_array[19]), 0,
+		     btSin(angle_array[19]), btCos(angle_array[19]), 0, 
+		     0, 0, 1);
+
+    b3Printf("left_shoulder_z = %f\n", (angle_array[19]*180)/M_PI);
+
+    //
+    // calc left_shoulder_y angle
+    // xy平面に投影した腕平面の法線ベクトルと法線ベクトルのなす角を計算
+    d = project_plane_crossVec.dot(plane_crossVec);
+    N = project_plane_crossVec.norm() * plane_crossVec.norm();
+
+    // 初期上腕とYZ平面に投影した矯正後の上腕の外積を計算
+    project_rot_a = btVector3(0.f, rot_a.getY(), rot_a.getZ());
+    temp_crossVec = project_rot_a.cross(init_upper_arm);
+
+    if(temp_crossVec.getX() >= 0)
+    {
+      // 振り上げている
+      angle_array[20] = -acos(d/N);
+    }
+    else
+    {
+      angle_array[20] = acos(d/N);
+    }
+
+    Rx = btMatrix3x3(1, 0, 0,
+		     0, btCos(angle_array[20]), -btSin(angle_array[20]),
+		     0, btSin(angle_array[20]), btCos(angle_array[20]));
+
+    b3Printf("left_shoulder_y = %f\n", (angle_array[20]*180)/M_PI);
+
+    rot_mat = Rz*Rx;
+
+    // 腕平面の法線ベクトルがY軸負方向に一致するか確認
+    rot_test1 = btVector3(rot_mat.tdotx(plane_crossVec), rot_mat.tdoty(plane_crossVec), rot_mat.tdotz(plane_crossVec));
+    norm = rot_test1.norm();
+    // b3Printf("baseline:arm-plane-crossVec -> Negative-Y-Axis  x = %f, y = %f, z = %f\n", rot_test1.getX()/norm, rot_test1.getY()/norm, rot_test1.getZ()/norm);
+
+
+    //
+    // calc left_shoulder_x angle
+    // 初期上腕と腕平面の法線ベクトルがY軸負方向に一致している時（xz平面にある時）のなす角を計算
+    btVector3 rot_a2 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
+
+    d = init_upper_arm.dot(rot_a2);
+    N = init_upper_arm.norm() * rot_a2.norm();
+
+    temp_crossVec = rot_a2.cross(init_upper_arm);
+
+    if(temp_crossVec.getY() >= 0)
+    {
+      // 脇を開いている 
+      angle_array[21] = -acos(d/N);
+    }
+    else
+    {
+      angle_array[21] = acos(d/N);
+    }
+
+    Ry = btMatrix3x3(btCos(angle_array[21]), 0, btSin(angle_array[21]),
+		     0, 1, 0,
+		    -btSin(angle_array[21]), 0, btCos(angle_array[21]));
+
+    b3Printf("left_shoulder_x = %f\n", (angle_array[21]*180)/M_PI);
+
+    rot_mat = Rz*Rx*Ry; // Bullet :: Rz*Ry*Rx(回転行列), Z->Y->X(オイラー)
+
+    // 
+    rot_test2 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
+    norm = rot_test2.norm();
+    // b3Printf("baseline:upper_arm -> Init-UpperArm :: x = %f y = %f z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
+  }
+  else
+  {
+    b3Printf("  Left Shoulder Is Not Estimated Correctly!\n");
+    angle_array[19] = NOT_ESTIMATED;
+    angle_array[20] = NOT_ESTIMATED;
+    angle_array[21] = NOT_ESTIMATED;
+  }
+#endif
+
+  // ------------------------------------------------------------
+
+#if 1
+  //
+  // calc left_elbow joint angle
+  //
+  if( judgeCalc(pos_data, 11, 12, 13) )
+  {
+    btScalar a_x = pos_data[11][0] - pos_data[12][0];
+    btScalar a_y = pos_data[11][1] - pos_data[12][1];
+    btScalar a_z = pos_data[11][2] - pos_data[12][2];
+    btVector3 a = -btVector3(a_x, a_y, a_z);
+    btScalar b_x = pos_data[13][0] - pos_data[12][0];
+    btScalar b_y = pos_data[13][1] - pos_data[12][1];
+    btScalar b_z = pos_data[13][2] - pos_data[12][2];
+    btVector3 b = btVector3(b_x, b_y, b_z);
+    d = a.dot(b);
+    N = a.norm() * b.norm();
+    angle_array[22] = acos(d/N);
+    b3Printf("left_elbow = %f\n", (angle_array[22]*180)/M_PI);
+  }
+  else
+  {
+    b3Printf("  Left Elbow Is Not Estimated Correctly!\n");
+    angle_array[22] = NOT_ESTIMATED;
+  }
+#endif
+
+  // ------------------------------------------------------------
+
+  return;
+}
+
+
+std::map<int, std::string> joint_map = {
+  {0, "abdomen_z"},
+  {1, "abdomen_y"},
+  {2, "abdomen_x"},
+  {3, "right_hip_z"},
+  {4, "right_hip_x"},
+  {5, "right_hip_y"},
+  {6, "right_knee"},
+  {7, "right_ankle_y"},
+  {8, "right_ankle_x"},
+  {9, "left_hip_z"},
+  {10, "left_hip_x"},
+  {11, "left_hip_y"},
+  {12, "left_knee"},
+  {13, "left_ankle_y"},
+  {14, "left_ankle_x"},
+  {15, "right_shoulder_z"},
+  {16, "right_shoulder_y"},
+  {17, "right_shoulder_x"},
+  {18, "right_elbow"},
+  {19, "left_shoulder_z"},
+  {20, "left_shoulder_y"},
+  {21, "left_shoulder_x"},
+  {22, "left_elbow"}
+};
+
+
 
 // step Simulation
 void Nursing::stepSimulation(float deltaTime)
 {
-if (m_dynamicsWorld)
-{
-  // btVector3 gravity(0, 0, -10);
-  // gravity[m_upAxis] = m_grav;
-  // m_dynamicsWorld->setGravity(gravity);
-
-  btScalar fixedTimeStep = 1. / 240.f;
-  // btScalar fixedTimeStep = 1. / 120.f;
-
-  for (int i = 0; i < m_data->m_numMotors; i++)
+  if (m_dynamicsWorld)
   {
-    if (m_data->m_jointMotors[i])
-    {
-      btScalar pos = m_data->m_motorTargetPositions[i];
+    // btVector3 gravity(0, 0, -10);
+    // gravity[m_upAxis] = m_grav;
+    // m_dynamicsWorld->setGravity(gravity);
 
-      int link = m_data->m_jointMotors[i]->getLinkA();
-      btScalar lowerLimit = m_data->m_mb->getLink(link).m_jointLowerLimit;
-      btScalar upperLimit = m_data->m_mb->getLink(link).m_jointUpperLimit;
-      if (lowerLimit < upperLimit)
+    btScalar fixedTimeStep = 1. / 240.f;
+    // btScalar fixedTimeStep = 1. / 120.f;
+    
+    static int count = 0;
+    static int keypoint_frame = 0; // 現在のフレーム数
+    const static int data_size = vstr.size();
+    static bool once = true; // 一度だけSimulationの終了を端末上に通知するための変数
+    static bool input_angle = false;
+
+    const static int start_frame = 0;
+    // const static int stop_frame = vstr.size()/2; // 32
+    const static int stop_frame = 0; // 32
+    // const static int stop_frame = 10; 
+
+    for(int n = 0; n < m_datas.size(); n++)
+    {
+      struct ImportMJCFInternalData* humanoid_data = m_datas[n];
+
+
+      bool flag = (data_size > keypoint_frame*num_humanoid + n) ? true : false; 
+      // if( keypoint_frame*num_humanoid+n == 0)
+      if( count == 0 && once)
       {
-	btClamp(pos, lowerLimit, upperLimit);
+	b3Printf("  ~~~~~ Start (Nursing) Simulation ~~~~~ \n");
+	// std::string str;
+	// b3Printf(" Input Angle? -> \n");
+	// getline(std::cin, str);
+
       }
-      m_data->m_jointMotors[i]->setPositionTarget(pos);
-    }
-#if 0
-    if (m_data->m_generic6DofJointMotors[i])
-    {
-      GenericConstraintUserInfo* jointInfo = (GenericConstraintUserInfo*)m_data->m_generic6DofJointMotors[i]->getUserConstraintPtr();
-      m_data->m_generic6DofJointMotors[i]->setTargetVelocity(jointInfo->m_jointAxisIndex, m_data->m_motorTargetPositions[i]);
-    }
+
+      if(!flag && once)
+      {
+	b3Printf("  ~~~~~ Finish (Nursing) Simulation ~~~~~ \n");
+
+	if( n == 0 )
+	  for(int i = 0; i < 23; i++)
+	    humanA_angle_array[i] = 0.f;
+	else if( n == 1 )
+	  for(int i = 0; i < 23; i++)
+	    humanB_angle_array[i] = 0.f;
+
+	once = false;
+      }
+
+      if(((count & 0x0) == 0 && flag && count != 0))
+      // if(flag)
+      {
+	// b3Printf("count = %d\n", count);
+
+
+	if(once && n == 0)
+  	  b3Printf("========== frame : %d ========== \n", keypoint_frame);
+
+	if(start_frame <= keypoint_frame && keypoint_frame <= stop_frame)
+	{
+	  if( n == 0 )
+	  {
+            calcJointAngle(humanA_angle_array, keypoint_frame, n); 
+
+	    /*
+	    // 初期値を設定
+	    if( keypoint_frame == 0 )
+	      for (int i = 0; i < humanoid_data->m_numMotors; i++)
+	        humanA_before_angle_array[i] = humanA_angle_array[i];
+	    */
+              
+	  }
+	  else
+	  {
+            calcJointAngle(humanB_angle_array, keypoint_frame, n); 
+
+	    /*
+	    // 初期値を設定
+	    if( keypoint_frame == 0 )
+	      for (int i = 0; i < humanoid_data->m_numMotors; i++)
+	        humanB_before_angle_array[i] = humanB_angle_array[i];
+            */
+	  }
+	  // once = false;
+	}
+
+	for (int i = 0; i < humanoid_data->m_numMotors; i++)
+	{
+	  if (humanoid_data->m_jointMotors[i])
+	  {
+	    btScalar pos;
+	    // b3Printf("human = %d , i = %d\n", n, i);
+#ifdef SIMULATION
+	    // Joint角度が計算できない時とあまりに前回の結果と違う時、前回の結果を使う
+	    /*
+	    if( n == 0 )
+	    {
+              if(angle_array[i] == NOT_ESTIMATED || btFabs(angle_array[i] - humanA_before_angle_array[i] > M_PI/18))
+	        angle_array[i] = humanA_before_angle_array[i];
+	    }
+	    else
+	    {
+	      if(angle_array[i] == NOT_ESTIMATED || btFabs(angle_array[i] - humanB_before_angle_array[i] > M_PI/18))
+	        angle_array[i] = humanB_before_angle_array[i];
+	    }
+	    */
+	   
+
+	    if( n == 0 )
+	    {
+
+	      // 関節角度が計算できている時
+              if(humanA_angle_array[i] != NOT_ESTIMATED)
+	      {
+		/*
+	        if(btFabs(btFabs(humanA_angle_array[i]) - btFabs(humanA_before_angle_array[i])) > M_PI/6)
+	          pos = humanA_before_angle_array[i];
+		else
+		*/
+		{
+	          pos = humanA_angle_array[i];
+	          // 関節角度を保存
+	          humanA_before_angle_array[i] = humanA_angle_array[i];
+		}
+	      }
+	      else
+	      {
+	        pos = humanA_before_angle_array[i];
+		b3Printf(" ====> use before angle\n");
+	      }
+
+	    }
+	    else
+	    {
+
+              if(humanB_angle_array[i] != NOT_ESTIMATED)
+	      {
+		/*
+	        if(btFabs(btFabs(humanB_angle_array[i]) - btFabs(humanB_before_angle_array[i])) > M_PI/6)
+	          pos = humanB_before_angle_array[i];
+		else
+		*/
+		{
+	          pos = humanB_angle_array[i];
+	          // 関節角度を保存
+	          humanB_before_angle_array[i] = humanB_angle_array[i];
+		}
+	      }
+	      else
+	      {
+	        pos = humanB_before_angle_array[i];
+		b3Printf(" ====> use before angle\n");
+	      }
+
+	    }
+
+
+	    /*
+	    // 変化量があまりに大きい時、推定が逆になっている
+	    if(btFabs(angle_array[6] - before_angle_array[6]) > M_PI/6)
+	    {
+	      if( n == 0 )
+		angle_array[i] = humanB_angle_array[i];
+              if( n == 1 )
+		angle_array[i] = humanA_angle_array[i];
+	    }
+	    */
+	    
+
+	    // btScalar pos = angle_array[i];
+
+
+	    /*
+ 	    if(i == 15)
+	      pos = angle_array[17];
+	    else if(i == 17)
+	      pos = angle_array[15];
+	      */
+               
+	    if(pos && flag && once)
+	    {
+	      // b3Printf("human %d :: %s = %f\n", n, joint_map[i].c_str(), (angle_array[i]*180)/M_PI);
+	    }
+	    else if(!pos && input_angle)
+	    {
+	      std::string str_angle;
+	      b3Printf("  Please Input human%d %s Angle -> ", n, joint_map[i].c_str());
+	      getline(std::cin, str_angle);
+	      btScalar angle = (std::stof(str_angle)*M_PI)/180.f;
+	      pos = angle;
+	    }
+#else
+	    btScalar pos = humanoid_data->m_motorTargetPositions[i];
 #endif
-  }
 
-  if(DrawContactForceFlag)
-  {
-    DrawContactForce();
-  }
-  if(DrawMotorForceFlag)
-  {
-    DrawMotorForce();
-  }
-  if(DrawSoftForceFlag)
-  {
-    DrawSoftBodyAppliedForce();
-  }
+	      
+	    int link = humanoid_data->m_jointMotors[i]->getLinkA();
+	    btScalar lowerLimit = humanoid_data->m_mb->getLink(link).m_jointLowerLimit;
+	    btScalar upperLimit = humanoid_data->m_mb->getLink(link).m_jointUpperLimit;
+	    if (lowerLimit < upperLimit)
+	    {
+	      btClamp(pos, lowerLimit, upperLimit);
+	    }
 
-  //the maximal coordinates/iterative MLCP solver requires a smallish timestep to converge
-  m_dynamicsWorld->stepSimulation(deltaTime, 10, fixedTimeStep);
-  // m_dynamicsWorld->stepSimulation(deltaTime);
- 
-  dt = deltaTime;
+	    humanoid_data->m_jointMotors[i]->setPositionTarget(pos);
+	  }
+	}
+
+	if(n == (m_datas.size() - 1))
+	  keypoint_frame++;
+	// if(keypoint_frame == stop_frame)
+          // break;
+      }
+    }
+
+
+    if(DrawContactForceFlag)
+    {
+      DrawContactForce();
+    }
+    if(DrawMotorForceFlag)
+    {
+      if(count > 1)
+        DrawMotorForce();
+    }
+    if(DrawSoftForceFlag)
+    {
+      DrawSoftBodyAppliedForce();
+    }
+
+    count++;
+
+    //the maximal coordinates/iterative MLCP solver requires a smallish timestep to converge
+    m_dynamicsWorld->stepSimulation(deltaTime, 10, fixedTimeStep);
+    // m_dynamicsWorld->stepSimulation(deltaTime);
+   
+    // b3Printf("deltaTime = %f\n", deltaTime);
   }
 }
 // ----------------------------------------------------------------------------------
@@ -1503,7 +3546,7 @@ void Nursing::DrawContactForce(btScalar fixedTimeStep)
 #endif
 
     int num_contacts = manifold->getNumContacts(); // オブジェクト間の衝突点数
-    btScalar pointSize = 20;
+    btScalar pointSize = 30;
     // int flag = btCollisionObject::CF_KINEMATIC_OBJECT | btCollisionObject::CF_STATIC_OBJECT;
     int flag = btCollisionObject::CF_STATIC_OBJECT;
     int obj_flag = obA->getCollisionFlags() | obB->getCollisionFlags();
@@ -1516,16 +3559,31 @@ void Nursing::DrawContactForce(btScalar fixedTimeStep)
 	{
 	  const btVector3& ptA = pt.getPositionWorldOnA();
 	  const btVector3& ptB = pt.getPositionWorldOnB();
-	  btScalar contact_force = pt.getAppliedImpulse();
-	  btScalar contact_force2 = contact_force / fixedTimeStep;
-	  b3Printf("contact force = %f, %f(imp*dt)\n", contact_force, contact_force2); 
+	  btScalar contact_impulse = pt.getAppliedImpulse();
+	  btScalar contact_force = contact_impulse / fixedTimeStep;
+	  // b3Printf("contact force = %f, %f(imp*dt)\n", contact_force, contact_force); 
 	  // b3Printf("contact point = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());   
 	  // b3Printf("contact pointA = %f, %f, %f\n", ptA.getX(), ptA.getY(), ptA.getZ());       
 	  // b3Printf("contact pointB = %f, %f, %f\n", ptB.getX(), ptB.getY(), ptB.getZ());       
 	  // btScalar step = 10; // デジタル的方法：10[N]ごとに赤色に近づく(Maxは500[N])
-	  btScalar delta_color = contact_force2 / MAX_CONTACT_FORCE;
-	  btVector3 color2 = btVector3(1, 1-delta_color, 1-delta_color); 
-	  m_guiHelper->getRenderInterface()->drawPoint(ptA, color2, pointSize);
+
+	  btScalar delta_color = contact_force / MAX_CONTACT_FORCE;
+	  // btVector3 color2 = btVector3(1, 1-delta_color, 1-delta_color);
+	  // btVector3 color = white;
+	  btVector3 color = green;
+	  if( 0.f < contact_force && contact_force < MAX_CONTACT_FORCE/3)
+	    color = green;
+	  else if( MAX_CONTACT_FORCE/3 < contact_force && contact_force < 2*MAX_CONTACT_FORCE/3)
+             color = yellow;
+	  else if( 2*MAX_CONTACT_FORCE/3 < contact_force && contact_force < MAX_CONTACT_FORCE)
+            color = red;
+	  else if( MAX_CONTACT_FORCE < contact_force)
+	  {
+            color = black;
+	    // b3Printf("contact force = %f, %f(imp*dt)\n", contact_force, contact_force); 
+	  }
+	    
+	  m_guiHelper->getRenderInterface()->drawPoint(ptA, color, pointSize);
 	}
       }
     }
@@ -1534,47 +3592,71 @@ void Nursing::DrawContactForce(btScalar fixedTimeStep)
 
 void Nursing::DrawMotorForce(btScalar fixedTimeStep)
 { // 黒(0,0,0)
-  for(int i = 0; i < m_data->m_numMotors; i++)
+  for(int n = 0; n < m_datas.size(); n++)
   {
-    // b3Printf("m_numMotors = %d\n", m_data->m_numMotors);
-    float motor_force = 0.0;
-    if(m_data->m_jointMotors[i])
+    struct ImportMJCFInternalData* humanoid_data = m_datas[n];
+
+    for(int i = 0; i < humanoid_data->m_numMotors; i++)
     {
-      // Show Joint Name
-      // std::string* jointName = new std::string(m_data->m_mb->getLink(i).m_jointName);
-      // b3Printf("i = %d : JointName is %s\n", i, jointName->c_str());
-      // 下のif文を付けないとsignal6でプログラムが終了する
-      // if(m_data->m_jointMotors[i]->getDataSize())
+      // b3Printf("m_numMotors = %d\n", humanoid_data->m_numMotors);
+      float motor_force = 0.0;
+      if(humanoid_data->m_jointMotors[i])
       {
-	motor_force = m_data->m_jointMotors[i]->getAppliedImpulse(0) / fixedTimeStep; 
+	// Show Joint Name
+	// std::string* jointName = new std::string(humanoid_data->m_mb->getLink(i).m_jointName);
+	// b3Printf("i = %d : JointName is %s\n", i, jointName->c_str());
+	// 下のif文を付けないとsignal6でプログラムが終了する
+	// if(humanoid_data->m_jointMotors[i]->getDataSize())
+	{
+	  motor_force = humanoid_data->m_jointMotors[i]->getAppliedImpulse(0) / fixedTimeStep; 
 
-	btTransform tr;
-	if(MotorJointNames[i] == std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkA()).m_jointName)){
-	  tr = m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkA()).m_cachedWorldTransform;
-	  std::string* LinkAName = new std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkA()).m_linkName);
-	  std::string* JointAName = new std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkA()).m_jointName);
+	  btTransform tr;
 
-	  // b3Printf("LinkA : %s  %f, %f, %f\n", LinkAName->c_str(), tr.getOrigin().getX(), tr.getOrigin().getY(), tr.getOrigin().getZ());
-	  b3Printf("jointName = %s", JointAName->c_str());
+	  {
+	    if(MotorJointNames[i] == std::string(humanoid_data->m_mb->getLink(humanoid_data->m_jointMotors[i]->getLinkA()).m_jointName)){
+	      tr = humanoid_data->m_mb->getLink(humanoid_data->m_jointMotors[i]->getLinkA()).m_cachedWorldTransform;
+	      std::string* LinkAName = new std::string(humanoid_data->m_mb->getLink(humanoid_data->m_jointMotors[i]->getLinkA()).m_linkName);
+	      std::string* JointAName = new std::string(humanoid_data->m_mb->getLink(humanoid_data->m_jointMotors[i]->getLinkA()).m_jointName);
+
+	      // b3Printf("LinkA : %s  %f, %f, %f\n", LinkAName->c_str(), tr.getOrigin().getX(), tr.getOrigin().getY(), tr.getOrigin().getZ());
+	      // b3Printf("jointName = %s\n", JointAName->c_str());
+	    }
+	    else if(humanoid_data->m_jointMotors[i]->getLinkB() && MotorJointNames[i] == std::string(humanoid_data->m_mb->getLink(humanoid_data->m_jointMotors[i]->getLinkB()).m_jointName)){
+	      tr = humanoid_data->m_mb->getLink(humanoid_data->m_jointMotors[i]->getLinkB()).m_cachedWorldTransform;
+	      std::string* LinkBName = new std::string(humanoid_data->m_mb->getLink(humanoid_data->m_jointMotors[i]->getLinkB()).m_linkName);
+	      std::string* JointBName = new std::string(humanoid_data->m_mb->getLink(humanoid_data->m_jointMotors[i]->getLinkB()).m_jointName);
+
+	      // b3Printf("LinkB : %s  %f, %f, %f\n", LinkBName->c_str(), tr.getOrigin().getX(), tr.getOrigin().getY(), tr.getOrigin().getZ());
+	      // b3Printf("jointName = %s\n", JointBName->c_str());
+	    }
+	  }
+	  btVector3 pos = tr.getOrigin();
+	  btScalar pointSize = 20;
+	  btScalar delta_color = motor_force / MAX_JOINTMOTOR_TORQUE;
+	  // btVector3 color = btVector3(1-delta_color, 1-delta_color, 1-delta_color);
+	  // b3Printf("Draw human = %d, joint = %d\n", n, i);
+	  // btVector3 color = white;
+	  btVector3 color = green;
+	  if( 0.f < motor_force && motor_force < MAX_JOINTMOTOR_TORQUE/3)
+	    color = green;
+	  else if( MAX_JOINTMOTOR_TORQUE/3 < motor_force && motor_force < 2*MAX_JOINTMOTOR_TORQUE/3)
+            color = yellow;
+	  else if( 2*MAX_JOINTMOTOR_TORQUE/3 < motor_force && motor_force < MAX_JOINTMOTOR_TORQUE)
+            color = red;
+	  else if( MAX_JOINTMOTOR_TORQUE < motor_force)
+	  {
+            color = black;
+	    // b3Printf("	joint torque = %f\n", motor_force);
+	  }
+
+	  if(motor_force > 0.f)
+	    m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
 	}
-	else if(m_data->m_jointMotors[i]->getLinkB() && MotorJointNames[i] == std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkB()).m_jointName)){
-	  tr = m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkB()).m_cachedWorldTransform;
-	  std::string* LinkBName = new std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkB()).m_linkName);
-	  std::string* JointBName = new std::string(m_data->m_mb->getLink(m_data->m_jointMotors[i]->getLinkB()).m_jointName);
-
-	  // b3Printf("LinkB : %s  %f, %f, %f\n", LinkBName->c_str(), tr.getOrigin().getX(), tr.getOrigin().getY(), tr.getOrigin().getZ());
-	  b3Printf("jointName = %s\n", JointBName->c_str());
-	}
-	btVector3 pos = tr.getOrigin();
-	btScalar pointSize = 15;
-	btScalar delta_color = motor_force / MAX_JOINTMOTOR_TORQUE;
-	btVector3 color = btVector3(1-delta_color, 1-delta_color, 1-delta_color);
-	b3Printf("	joint torque = %f\n", motor_force);
-	m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
       }
     }
   }
 }
+
 
 btScalar max_impulse = 0;
 btScalar max_total_impulse = 0;
@@ -1587,7 +3669,7 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 
   btScalar total_f = 0;
   btScalar total_ima = 0;
-  btScalar pointSize = 15;
+  btScalar pointSize = 10;
   btVector3 pos = btVector3(0, 0, 0);
 #if 1
   if(softWorld)
@@ -1737,9 +3819,9 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 		  if(max_impulse < impulse.length())
 		  {
 		    max_impulse = impulse.length();
-                    b3Printf("max_impulse = %f[N*s = kg*m/s]\n", max_impulse);
+                    // b3Printf("max_impulse = %f[N*s = kg*m/s]\n", max_impulse);
 		    max_force = max_impulse / fixedTimeStep;
-                    b3Printf("Force(max_impulse/timeStep) = %f[N*s/s = N]\n", max_force);
+                    // b3Printf("Force(max_impulse/timeStep) = %f[N*s/s = N]\n", max_force);
 		  }
 		}
 	      }
@@ -1760,7 +3842,19 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 		// btScalar delta_color = impulse.length() / MAX_SOFTBODY_IMPULSE;
 		btScalar force = impulse.length() / fixedTimeStep;
 		btScalar delta_color = force / MAX_SOFTBODY_FORCE; 
-		btVector3 color = btVector3(1, 1, 1-delta_color);
+		// btVector3 color = btVector3(1, 1, 1-delta_color);
+
+		// btVector3 color = white;
+		btVector3 color = green;
+		if( 0.f < force && force < MAX_SOFTBODY_FORCE/3)
+		  color = green;
+		else if( MAX_SOFTBODY_FORCE/3 < force && force < 2*MAX_SOFTBODY_FORCE/3)
+		   color = yellow;
+		else if( 2*MAX_SOFTBODY_FORCE/3< force && force < MAX_SOFTBODY_FORCE)
+		  color = red;
+		else if( MAX_SOFTBODY_FORCE < force)
+		  color = black;
+
 		// b3Printf("deltaV = %f, %f, %f length = %f\n", deltaV.x(), deltaV.y(), deltaV.z());
 		// if(impulse.length())
 		{
@@ -1776,9 +3870,9 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 		  if(max_impulse < impulse.length())
 		  {
 		    max_impulse = impulse.length();
-                    b3Printf("max_impulse = %f[N*s = kg*m/s]\n", max_impulse);
+                    // b3Printf("max_impulse = %f[N*s = kg*m/s]\n", max_impulse);
 		    max_force = force;
-                    b3Printf("Force(max_impulse/timeStep) = %f[N*s/s = N]\n", max_force);
+                    // b3Printf("Force(max_impulse/timeStep) = %f[N*s/s = N]\n", max_force);
 		  }
 		}
 	      }
@@ -1789,9 +3883,9 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
       if(max_total_impulse < total_impulse)
       {
 	max_total_impulse = total_impulse;
-        b3Printf("max_total_impulse = %f\n", max_total_impulse);
+        // b3Printf("max_total_impulse = %f\n", max_total_impulse);
 	max_total_force = max_total_impulse / fixedTimeStep;
-        b3Printf("max_total_force(max_total_impulse/timeStep) = %f\n", max_total_force);
+        // b3Printf("max_total_force(max_total_impulse/timeStep) = %f\n", max_total_force);
       }
       // b3Printf("total_impulse = %f\n", total_impulse);
     }
@@ -1799,425 +3893,6 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 }
 #endif
 
-#if 0
-void Nursing::SetPose(std::string pos_file_name = test_pos_file_name)
-{
-  std::ifstream pos_file(pos_file_name);
-  // cout << "読み込んだファイル : " << pos_file_name << endl;
-  std::string line_data, tmp;
-  if(!pos_file) {
-    printf("姿勢ファイルを開くことが出来ませんでした\n");
-    exit(1);
-  }
-  // double pos_data[32][3] = {0};
-  unsigned int baseline_joint[17] = {0, 1, 2, 3, 5, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27}; // baselineで実際に使われているkeypoint群
-  float tmp_pos_data[32][3] = {0.0f};
-  unsigned int num = 0;
-  // 一人分のデータ読み込み
-  while(getline(pos_file, line_data)){
-    if(num == 1)
-      break;
-    // cout << (num + 1) << "人目の座標情報 : " << line_data << endl;
-    line_data.erase(line_data.find('['), 1);
-    line_data.erase(line_data.find(']'), 1);
-    // カンマ区切りごとにデータを読み込むためにistringstream型にする
-    std::istringstream i_stream(line_data);
-    unsigned int i = 0, j = 0;
-    // カンマ区切りごとにデータを読み込む
-    while(getline(i_stream, tmp, ',')) {
-      if(j == 3){
-	j = 0;
-	i++;
-	if(i == 32)
-	  break;
-	  // continue;
-      }
-      // 文字型のデータをdouble型に変換し、pos_data配列に格納していく
-      tmp_pos_data[i][j] = std::stof(tmp);
-      b3Printf("tmp_pos_data[%d][%d] : %f \n", i, j, tmp_pos_data[i][j]);     // pos_data = {{x1,y1,z1},{x2,y2,z2},……}
-
-      j++;
-    }
-    num++;
-  }
-
-  float pos_data[17][3] = {0.0f};
-  for (int i = 0; i < 17; i++){
-  for(int j = 0; j < 3; j++){
-    pos_data[i][j] = tmp_pos_data[baseline_joint[i]][j];
-    b3Printf("pos_data[%d][%d] : %f \n", i, j, pos_data[i][j]);     // pos_data = {{x1,y1,z1},{x2,y2,z2},……}
-    }
-  }
-
-
-  //
-  // bullet:x = 3d-pose:y
-  // bullet:y = 3d-pose:x
-  // bullet:z = 3d-pose:z
-  //
- 
-  // 変数定義
-  btVector3 plane_crossVec = btVector3(0, 0, 0); // (脚または腕)平面の法線ベクトル
-  btVector3 initVec = btVector3(0, 0, 0);
-  btVector3 tempVec = btVector3(0, 0, 0);
-  btVector3 temp_crossVec = btVector3(0, 0, 0);
-  btVector3 rot_a = btVector3(0, 0, 0);
-  btScalar init_x = 0; btScalar init_y = 0; btScalar init_z = 0;
-  btScalar a_x = 0; btScalar a_y = 0; btScalar a_z = 0;
-  btVector3 a = btVector3(0, 0, 0);
-  btScalar b_x = 0; btScalar b_y = 0; btScalar b_z = 0;
-  btVector3 b = btVector3(0, 0, 0);
-  btScalar a2_x = 0; btScalar a2_y = 0; btScalar a2_z = 0;
-  btVector3 a2 = btVector3(0, 0, 0);
-  btScalar b2_x = 0; btScalar b2_y = 0; btScalar b2_z = 0;
-  btVector3 b2 = btVector3(0, 0, 0);
-  btVector3 planeA_crossVec = btVector3(0, 0, 0);
-  btVector3 planeB_crossVec = btVector3(0, 0, 0);
-  btScalar p_x = 0; btScalar p_y = 0; btScalar p_z = 0;
-  btVector3 p = btVector3(0, 0, 0);
-  btScalar q_x = 0; btScalar q_y = 0; btScalar q_z = 0;
-  btVector3 q = btVector3(0, 0, 0);
-  btScalar d = 0; btScalar N = 0;
-  btScalar rot_x = 0; btScalar rot_y = 0; btScalar rot_z = 0;
-  btVector3  rot_planeB_crossVec = btVector3(0, 0, 0);
-  btVector3 planeA_planeB_crossVec = btVector3(0, 0, 0);
-
-  // abdomen(腹部)
-  // 	abdomen_y	//
-#if 1
-  a_x = pos_data[1][0] - pos_data[7][0];
-  a_y = pos_data[1][1] - pos_data[7][1];
-  a_z = pos_data[1][2] - pos_data[7][2];
-  a = btVector3(a_x, a_y, a_z);		// 平面内の1ベクトル
-  b_x = pos_data[4][0] - pos_data[7][0];
-  b_y = pos_data[4][1] - pos_data[7][1];
-  b_z = pos_data[4][2] - pos_data[7][2];
-  b = btVector3(b_x, b_y, b_z);		// 平面内の1ベクトル
-  planeA_crossVec = a.cross(b);		// 平面A（下半身）の外積(法線ベクトル)
-  a2_x = pos_data[11][0] - pos_data[7][0];
-  a2_y = pos_data[11][1] - pos_data[7][1];
-  a2_z = pos_data[11][2] - pos_data[7][2];
-  a2 = btVector3(a2_x, a2_y, a2_z);		// 平面内の1ベクトル
-  b2_x = pos_data[14][0] - pos_data[7][0];
-  b2_y = pos_data[14][1] - pos_data[7][1];
-  b2_z = pos_data[14][2] - pos_data[7][2];
-  b2 = btVector3(b2_x, b2_y, b2_z);		// 平面内の1ベクトル
-  planeB_crossVec = b2.cross(a2);		// 平面B（上体）の外積(法線ベクトル)
-  p_x = pos_data[0][0] - pos_data[7][0];
-  p_y = pos_data[0][1] - pos_data[7][1];
-  p_z = pos_data[0][2] - pos_data[7][2];
-  p = btVector3(p_x, p_y, p_z);		// 下腹部ベクトル
-  q_x = pos_data[8][0] - pos_data[7][0];
-  q_y = pos_data[8][1] - pos_data[7][1];
-  q_z = pos_data[8][2] - pos_data[7][2];
-  q = btVector3(q_x, q_y, q_z);		// 胸部ベクトル
-  d = p.dot(q);
-  N = p.norm() * q.norm();
-  pos_array[1] = acos(d/N) - M_PI;	// TODO::曲げる方向も考慮
-  // 	abdomen_z	//
-  rot_x = planeB_crossVec.getX();
-  rot_y = planeB_crossVec.getY()*cos(-pos_array[1]) - planeB_crossVec.getZ()*sin(-pos_array[1]);
-  rot_z = planeB_crossVec.getY()*sin(-pos_array[1]) + planeB_crossVec.getZ()*cos(-pos_array[1]);
-  rot_planeB_crossVec = btVector3(rot_x, rot_y, rot_z);
-  d = planeA_crossVec.dot(rot_planeB_crossVec);
-  N = planeA_crossVec.norm() * rot_planeB_crossVec.norm();
-  planeA_planeB_crossVec = planeB_crossVec.cross(planeA_crossVec);
-  if(planeA_planeB_crossVec.getY()>0)
-    pos_array[0] = acos(d/N);
-  else
-    pos_array[0] = -acos(d/N);
-#endif
-  // 	abdomen_x	//
-
-#if 1
-  // right_hip
-  // 	right_hip_z	//
-  p_x = pos_data[0][0] - pos_data[1][0];
-  p_y = pos_data[0][1] - pos_data[1][1];
-  p_z = pos_data[0][2] - pos_data[1][2];
-  p = btVector3(p_x, p_y, p_z);		// 骨盤ベクトル
-  a_x = pos_data[1][0] - pos_data[2][0];
-  a_y = pos_data[1][1] - pos_data[2][1];
-  a_z = pos_data[1][2] - pos_data[2][2];
-  a = btVector3(a_x, a_y, a_z);		// 平面内の1ベクトル
-  b_x = pos_data[3][0] - pos_data[2][0];
-  b_y = pos_data[3][1] - pos_data[2][1];
-  b_z = pos_data[3][2] - pos_data[2][2];
-  b = btVector3(b_x, b_y, b_z);		// 平面内の1ベクトル
-  plane_crossVec = b.cross(a);		// 平面の外積(法線ベクトル)
-  d = p.dot(plane_crossVec);
-  N = p.norm() * plane_crossVec.norm();
-  // 腿の向きで内股か外股かを判別
-  a = -a; a.setY(0.0);
-  tempVec = btVector3(0.0, 0.0, a.getZ());
-  temp_crossVec = a.cross(tempVec);
-  if(temp_crossVec.getY() > 0)
-    pos_array[4] = -acos(d/N);
-  else
-    pos_array[4] = acos(d/N);
-  //	right_hip_y	//
-  a_x = pos_data[2][0] - pos_data[1][0];
-  a_y = pos_data[2][1] - pos_data[1][1];
-  a_z = pos_data[2][2] - pos_data[1][2];
-  // a = btVector3(a_x, a_y, a_z);         // 腿ベクトル
-  rot_x = a_x*cos(-pos_array[4]) + a_z*sin(-pos_array[4]);
-  rot_y = a_y;
-  rot_z = -a_x*sin(-pos_array[4]) + a_z*cos(-pos_array[4]);
-  rot_a = btVector3(rot_x, rot_y, rot_z);
-  // printf("rot_x : %lf, rot_y : %lf, rot_z : %lf\n", rot_x, rot_y, rot_z);
-  init_x = 0.0;
-  init_y = -1.0;		// btScalar init_y = a_y;
-  init_z = 0.0;
-  initVec = btVector3(init_x, init_y, init_z); 
-  // printf("init_x : %lf, init_y : %lf, init_z : %lf\n", init_x, init_y, init_z);
-  d = rot_a.dot(initVec);
-  N = rot_a.norm() * initVec.norm();
-  // 腿の向きで脚が身体より前か後ろかを判別
-  temp_crossVec = rot_a.cross(initVec);
-  if(temp_crossVec.getX() > 0)
-    pos_array[5] = -acos(d/N);
-  else
-    pos_array[5] = acos(d/N);
-#endif
-
-  // right_knee
-  a_x = pos_data[1][0] - pos_data[2][0];
-  a_y = pos_data[1][1] - pos_data[2][1];
-  a_z = pos_data[1][2] - pos_data[2][2];
-  a = btVector3(a_x, a_y, a_z);
-  b_x = pos_data[3][0] - pos_data[2][0];
-  b_y = pos_data[3][1] - pos_data[2][1];
-  b_z = pos_data[3][2] - pos_data[2][2];
-  b = btVector3(b_x, b_y, b_z);
-  d = a.dot(b);
-  N = a.norm() * b.norm();
-  pos_array[6] = -acos(d/N);
-
-  // left_hip
-  // 	left_hip_z	//
-  p_x = pos_data[0][0] - pos_data[4][0];
-  p_y = pos_data[0][1] - pos_data[4][1];
-  p_z = pos_data[0][2] - pos_data[4][2];
-  p = btVector3(p_x, p_y, p_z);		// 骨盤ベクトル
-  a_x = pos_data[4][0] - pos_data[5][0];
-  a_y = pos_data[4][1] - pos_data[5][1];
-  a_z = pos_data[4][2] - pos_data[5][2];
-  a = btVector3(a_x, a_y, a_z);		// 平面内の1ベクトル
-  b_x = pos_data[6][0] - pos_data[5][0];
-  b_y = pos_data[6][1] - pos_data[5][1];
-  b_z = pos_data[6][2] - pos_data[5][2];
-  b = btVector3(b_x, b_y, b_z);		// 平面内の1ベクトル
-  plane_crossVec = a.cross(b);		// 平面の外積(法線ベクトル)
-  d = p.dot(plane_crossVec);
-  N = p.norm() * plane_crossVec.norm();
-  // 腿の向きで内股か外股かを判別
-  a = -a; a.setY(0.0);
-  tempVec = btVector3(0.0, 0.0, a.getZ());
-  temp_crossVec = a.cross(tempVec);
-  if(temp_crossVec.getY() < 0)
-    pos_array[10] = -acos(d/N);
-  else
-    pos_array[10] = acos(d/N);
-  // 	left_hip_y	//
-  a_x = pos_data[5][0] - pos_data[4][0];
-  a_y = pos_data[5][1] - pos_data[4][1];
-  a_z = pos_data[5][2] - pos_data[4][2];
-  // a = btVector3(a_x, a_y, a_z);         // 腿ベクトル
-  rot_x = a_x*cos(-pos_array[10]) + a_z*sin(-pos_array[10]);
-  rot_y = a_y;
-  rot_z = -a_x*sin(-pos_array[10]) + a_z*cos(-pos_array[10]);
-  rot_a = btVector3(rot_x, rot_y, rot_z);
-  // printf("rot_x : %lf, rot_y : %lf, rot_z : %lf\n", rot_x, rot_y, rot_z);
-  init_x = 0.0;
-  init_y = -1.0;		// init_y = a_y;
-  init_z = 0.0;
-  initVec = btVector3(init_x, init_y, init_z); 
-  // printf("init_x : %lf, init_y : %lf, init_z : %lf\n", init_x, init_y, init_z);
-  d = rot_a.dot(initVec);
-  N = rot_a.norm() * initVec.norm();
-  // 腿の向きで脚が身体より前か後ろかを判別
-  temp_crossVec = rot_a.cross(initVec);
-  if(temp_crossVec.getX() < 0)
-    pos_array[11] = -acos(d/N);
-  else
-    pos_array[11] = acos(d/N);
-
-  // left_knee
-  a_x = pos_data[4][0] - pos_data[5][0];
-  a_y = pos_data[4][1] - pos_data[5][1];
-  a_z = pos_data[4][2] - pos_data[5][2];
-  a = btVector3(a_x, a_y, a_z);
-  b_x = pos_data[6][0] - pos_data[5][0];
-  b_y = pos_data[6][1] - pos_data[5][1];
-  b_z = pos_data[6][2] - pos_data[5][2];
-  b = btVector3(b_x, b_y, b_z);
-  d = a.dot(b);
-  N = a.norm() * b.norm();
-  pos_array[12] = -acos(d/N);
-
-  // right_shoulder
-  // 	right_shoulder1		//
-  p_x = pos_data[8][0] - pos_data[14][0];
-  p_y = pos_data[8][1] - pos_data[14][1];
-  p_z = pos_data[8][2] - pos_data[14][2];
-  p = btVector3(p_x, p_y, p_z);		// 骨盤ベクトル
-  a_x = pos_data[14][0] - pos_data[15][0];
-  a_y = pos_data[14][1] - pos_data[15][1];
-  a_z = pos_data[14][2] - pos_data[15][2];
-  a = btVector3(a_x, a_y, a_z);		// 平面内の1ベクトル
-  b_x = pos_data[16][0] - pos_data[15][0];
-  b_y = pos_data[16][1] - pos_data[15][1];
-  b_z = pos_data[16][2] - pos_data[15][2];
-  b = btVector3(b_x, b_y, b_z);		// 平面内の1ベクトル
-  plane_crossVec = a.cross(b);		// 平面の外積(法線ベクトル)
-  d = p.dot(plane_crossVec);
-  N = p.norm() * plane_crossVec.norm();
-  // 上腕の向きで脇を締めているかどうかを判別
-  a = -a; a.setZ(0.0);
-  // tempVec = btVector3(0.0, a.getY(), 0.0);
-  tempVec = btVector3(0.0, -1.0, 0.0);
-  temp_crossVec = a.cross(tempVec);
-  btScalar rot_angle = 0.0; 
-  if(temp_crossVec.getZ() > 0){
-    pos_array[15] = M_PI/4 - acos(d/N); // 
-    rot_angle = -acos(d/N);
-  }
-# if 1 
-  else{
-    pos_array[15] = M_PI/4 + acos(d/N);
-    rot_angle = acos(d/N);
-  }
-#endif
-  // pos_array[15] = M_PI/4;
-  // 	right_shoulder2		//
-  a_x = pos_data[15][0] - pos_data[14][0];
-  a_y = pos_data[15][1] - pos_data[14][1];
-  a_z = pos_data[15][2] - pos_data[14][2];
-  // a = btVector3(a_x, a_y, a_z);         // 腿ベクトル
-# if 0
-  rot_x = a_x*cos(-pos_array[15]) - a_y*sin(-pos_array[15]);
-  rot_y = a_x*sin(-pos_array[15]) + a_y*cos(-pos_array[15]);
-  rot_z = a_z;
-# endif
-  rot_x = a_x*cos(-rot_angle) + a_z*sin(-rot_angle);
-  rot_y = a_y;
-  rot_z = -a_x*sin(-rot_angle) + a_z*cos(-rot_angle);
-  rot_a = btVector3(rot_x, rot_y, rot_z);
-  // printf("rot_x : %lf, rot_y : %lf, rot_z : %lf\n", rot_x, rot_y, rot_z);
-  init_x = 0.0;
-  init_y = -1.0;
-  init_z = 0.0;
-  initVec = btVector3(init_x, init_y, init_z); 
-  // printf("init_x : %lf, init_y : %lf, init_z : %lf\n", init_x, init_y, init_z);
-  d = rot_a.dot(initVec);
-  N = rot_a.norm() * initVec.norm();
-  // 上腕の向きで腕が身体より前か後ろか（腕を振り上げているかそうでないか）を判別
-  temp_crossVec = rot_a.cross(initVec);
-  if(temp_crossVec.getX() > 0)
-    pos_array[16] = acos(d/N) - M_PI/6;
-  else
-    pos_array[16] = -acos(d/N) - M_PI/6;
-  // pos_array[16] = -M_PI/6;
-
-  // right_elbow
-  a_x = pos_data[14][0] - pos_data[15][0];
-  a_y = pos_data[14][1] - pos_data[15][1];
-  a_z = pos_data[14][2] - pos_data[15][2];
-  a = btVector3(a_x, a_y, a_z);
-  b_x = pos_data[16][0] - pos_data[15][0];
-  b_y = pos_data[16][1] - pos_data[15][1];
-  b_z = pos_data[16][2] - pos_data[15][2];
-  b = btVector3(b_x, b_y, b_z);
-  d = a.dot(b);
-  N = a.norm() * b.norm();
-  pos_array[17] = 7*M_PI/18 - acos(d/N);
-  // pos_array[17] = - M_PI/2;
-
-  // left_shoulder
-  // 	left_shoulder1		//
-#if 1
-  p_x = pos_data[0][0] - pos_data[1][0];
-  p_y = pos_data[0][1] - pos_data[1][1];
-  p_z = pos_data[0][2] - pos_data[1][2];
-  p = btVector3(p_x, p_y, p_z);		// 骨盤ベクトル
-  a_x = pos_data[1][0] - pos_data[2][0];
-  a_y = pos_data[1][1] - pos_data[2][1];
-  a_z = pos_data[1][2] - pos_data[2][2];
-  a = btVector3(a_x, a_y, a_z);		// 平面内の1ベクトル
-  b_x = pos_data[3][0] - pos_data[2][0];
-  b_y = pos_data[3][1] - pos_data[2][1];
-  b_z = pos_data[3][2] - pos_data[2][2];
-  b = btVector3(b_x, b_y, b_z);		// 平面内の1ベクトル
-  plane_crossVec = b.cross(a);		// 平面の外積(法線ベクトル)
-  d = p.dot(plane_crossVec);
-  N = p.norm() * plane_crossVec.norm();
-  // 上腕の向きで脇を締めているかどうかを判別
-  a = -a; a.setY(0.0);
-  tempVec = btVector3(0.0, 0.0, a.getZ());
-  temp_crossVec = a.cross(tempVec);
-  if(temp_crossVec.getY() > 0){
-    pos_array[18] = acos(d/N) - M_PI/4;
-    rot_angle = acos(d/N); 
-  }
-#if 1
-  else{
-    pos_array[18] = -acos(d/N) - M_PI/4;
-    rot_angle = -acos(d/N); 
-  }
-#endif
-  // pos_array[18] = - M_PI/4;
-  // 	left_shoulder2		//
-  a_x = pos_data[2][0] - pos_data[1][0];
-  a_y = pos_data[2][1] - pos_data[1][1];
-  a_z = pos_data[2][2] - pos_data[1][2];
-  // a = btVector3(a_x, a_y, a_z);         // 腿ベクトル
-# if 0
-  rot_x = a_x*cos(-pos_array[15]) - a_y*sin(-pos_array[15]);
-  rot_y = a_x*sin(-pos_array[15]) + a_y*cos(-pos_array[15]);
-  rot_z = a_z;
-# endif
-  rot_x = a_x*cos(-rot_angle) + a_z*sin(-rot_angle);
-  rot_y = a_y;
-  rot_z = -a_x*sin(-rot_angle) + a_z*cos(-rot_angle);
-  rot_a = btVector3(rot_x, rot_y, rot_z);
-  // printf("rot_x : %lf, rot_y : %lf, rot_z : %lf\n", rot_x, rot_y, rot_z);
-  init_x = 0.0;
-  init_y = -1.0;
-  init_z = 0.0;
-  initVec = btVector3(init_x, init_y, init_z); 
-  // printf("init_x : %lf, init_y : %lf, init_z : %lf\n", init_x, init_y, init_z);
-  d = rot_a.dot(initVec);
-  N = rot_a.norm() * initVec.norm();
-  // 上腕の向きで腕が身体より前か後ろか（腕を振り上げているかそうでないか）を判別
-  temp_crossVec = rot_a.cross(initVec);
-  if(temp_crossVec.getX() > 0)
-    pos_array[19] = -acos(d/N) + M_PI/6;
-  else
-    pos_array[19] = acos(d/N) + M_PI/6;
-  // pos_array[19] = 7*M_PI/36;
-# endif
-
-  // left_elbow
-  a_x = pos_data[11][0] - pos_data[12][0];
-  a_y = pos_data[11][1] - pos_data[12][1];
-  a_z = pos_data[11][2] - pos_data[12][2];
-  a = btVector3(a_x, a_y, a_z);
-  b_x = pos_data[13][0] - pos_data[12][0];
-  b_y = pos_data[13][1] - pos_data[12][1];
-  b_z = pos_data[13][2] - pos_data[12][2];
-  b = btVector3(b_x, b_y, b_z);
-  d = a.dot(b);
-  N = a.norm() * b.norm();
-  pos_array[20] = 7*M_PI/18 - acos(d/N);
-  // pos_array[20] = - M_PI/2;
-
-
-  for (int i = 0; i < 21; i++){
-    b3Printf("pos_array[%d] : %f \n", i, pos_array[i]);     // pos_data = {{x1,y1,z1},{x2,y2,z2},……}
-  }
-
-}
-#endif
 class CommonExampleInterface* NursingCreateFunc(struct CommonExampleOptions& options)
 {
   current_demo = options.m_option;

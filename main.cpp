@@ -245,12 +245,20 @@ int main(int argc, char* argv[])
   example->processCommandLineArgs(argc, argv);
   
   example->initPhysics();
+
   example->resetCamera();
   
-  b3Clock clock;
   
+  // b3Clock wait_clock;
+  // do{
+  // }while(btScalar(wait_clock.getTimeInSeconds()) < 3.f);
+
+
+  b3Clock clock;
+
   do
     {
+
       app->m_instancingRenderer->init();
       app->m_instancingRenderer->updateCamera(app->getUpAxis());
       
@@ -268,6 +276,7 @@ int main(int argc, char* argv[])
       // app->drawGrid(dg);
       
       app->swapBuffer();
+
     } while (!app->m_window->requestedExit());
   
   example->exitPhysics();
