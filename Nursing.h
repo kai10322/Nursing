@@ -167,10 +167,9 @@ public:
 #if 1	// MJCF Camera Setting
     float dist = 3.0;
     float pitch = -28;
-    float yaw = -50;
+    float yaw = 50;
     float targetPos[3] = {0.47, 0, -0.64};
 #endif  
-    m_guiHelper->resetCamera(dist, yaw, pitch, targetPos[0], targetPos[1], targetPos[2]);
   }
 
 #if 1

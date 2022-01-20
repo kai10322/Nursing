@@ -5,7 +5,7 @@
   This software is provided 'as-is', without any express or implied warranty.
   In no event will the authors be held liable for any damages arising from the use of this software.
   Permission is granted to anyone to use this software for any purpose, 
- MAX_CONTACT_FORCi including commercial applications, and to alter it and redistribute it freely, 
+  including commercial applications, and to alter it and redistribute it freely, 
   subject to the following restrictions:
 
   1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.
@@ -17,21 +17,19 @@
 
 #define SIMULATION
 
-#define JOINT_ANGLE_SHOW
+// #define JOINT_ANGLE_SHOW
 
 #define DEBUG_HUMANOID 
-#define CREATE_COMPOUND_BED
 #define CREATE_CLOTH
 // #define CREATE_BED_BOX
 // #define CREATE_MULTIBODY_SPHERE
-#define CREATE_RIGID_SHPERE
-// #define CREATE_RIGID_BOX
+// #define CREATE_RIGID_SHPERE
 // #define CREATE_SOFTBOX
 // #define CREATE_TETRACUBE 
-#define MAX_CONTACT_FORCE 80 // [N] // humanoidの全質量は約41kgなので
+#define MAX_CONTACT_FORCE 500 // [N] // humanoidの全質量は約41kgなので
 #define MAX_SOFTBODY_IMPULSE 0.01 // [N*s(TimeStep)]
 #define MAX_SOFTBODY_FORCE 0.5 // [N] // 2.4, 0.8
-#define MAX_JOINTMOTOR_TORQUE 50 // [N*m] // 
+#define MAX_JOINTMOTOR_TORQUE 400 // [N*m] // 
 
 #define NOT_ESTIMATED 100000
 
@@ -206,7 +204,6 @@ Nursing::Nursing(struct GUIHelperInterface* helper)
    	    gMCFJFileNameArray.push_back("./humanoid_model/original_humanoid_2.xml");
 	  else 
    	    gMCFJFileNameArray.push_back("./humanoid_model/original_humanoid.xml");
-   	    // gMCFJFileNameArray.push_back("./humanoid_model/original_humanoid_noLimit.xml");
 
 	  // gMCFJFileNameArray.push_back("./humanoid2.xml");
 	  // gMCFJFileNameArray.push_back("./humanoid_SoftTest.xml");
@@ -427,23 +424,6 @@ static btRigidBody* createRigidSphere(Nursing* pdemo, btScalar mass = 1.0, btSca
   int collisionFilterGroup = int(btBroadphaseProxy::DefaultFilter);
   int collisionFilterMask = int(btBroadphaseProxy::AllFilter);
   pdemo->m_dynamicsWorld->addRigidBody(body, collisionFilterGroup, collisionFilterMask);
-  body->setFriction(1);
-  return (body);
-}
-
-
-//
-// Rigid Box 
-//
-static btRigidBody* createRigidBox(Nursing* pdemo, btScalar mass = 1.0, btScalar edge_length = 0.5)
-{
-  btTransform startTransform;
-  startTransform.setIdentity();
-  startTransform.setOrigin(btVector3(0, 0, 1.0));
-  btRigidBody* body = pdemo->createRigidBody(mass, startTransform, new btBoxShape(btVector3(edge_length, edge_length, edge_length)));
-  int collisionFilterGroup = int(btBroadphaseProxy::DefaultFilter);
-  int collisionFilterMask = int(btBroadphaseProxy::AllFilter);
-  pdemo->m_dynamicsWorld->addRigidBody(body, collisionFilterGroup, collisionFilterMask);
   return (body);
 }
 
@@ -457,7 +437,7 @@ static btRigidBody* createBedBox(Nursing* pdemo, btScalar mass = 0.0, btScalar b
   //
   // 190:100:40[cm]
   btScalar width = base_size;
-  btScalar height = base_size * 0.7;
+  btScalar height = base_size * 0.6;
   btScalar depth = base_size * 1.9;
   btTransform startTransform;
   startTransform.setIdentity();
@@ -488,7 +468,7 @@ static btRigidBody* createCompoundBed(Nursing* pdemo, btScalar mass = 0.0, btSca
   //	Create Main Body	//
   // 190:100:40[cm]
   btScalar width = base_size - (margin/2);
-  btScalar height = base_size * 0.3f; // 0.4f
+  btScalar height = base_size * 0.45f; // 0.4f
   // btScalar height = base_size * 0.3;
   btScalar depth = base_size * 1.9f - (margin/2.f);
   btTransform trans;
@@ -603,8 +583,6 @@ static btRigidBody* createCompoundBed(Nursing* pdemo, btScalar mass = 0.0, btSca
   startTransform.setIdentity();
   startTransform.setOrigin(btVector3(0, 0, body_base));
   btRigidBody* BedBody = pdemo->createRigidBody(mass, startTransform, BedShape);
-  BedBody->setFriction(1);;
-  BedBody->setRollingFriction(1);
   BedBody->setCollisionFlags(BedBody->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
 
   // int collisionFilterGroup = int(btBroadphaseProxy::StaticFilter);
@@ -727,30 +705,30 @@ static btSoftBody* TetraCube(Nursing* pdemo, const btVector3& p, const btVector3
 static btSoftBody* Cloth(Nursing* pdemo)
 {
 	// btScalar margin = 0.13; // 衝突マージン(上から落とす時)
-	btScalar margin = 0.05; // 衝突マージン // 0.05 or 0.1
-        btScalar Bed_height = 0.5*0.38*2 + margin + 0.2; // Bed Height : 0.24*2, Ground Height : 0.2
+	btScalar margin = 0.07; // 衝突マージン // 0.05 or 0.1
+        btScalar Bed_height = 0.24 * 2 + margin*2 + 0.2; // Bed Height : 0.24*2, Ground Height : 0.2
 	btScalar h = 1.2;
         btScalar w = 0.7;
         btSoftBody* psb = btSoftBodyHelpers::CreatePatch(
 			pdemo->m_softBodyWorldInfo, 
 			btVector3(-h*1., -w*1., 0), btVector3(+h*1., -w*1., 0),
                         btVector3(-h*1., +w*1., 0),btVector3(+h*1., +w*1., 0),
-                        61, 61, // 17,17, // 51, 51 // 62, 62
+                        51, 51, // 17,17, // 51, 51 // 62, 62
                         0, // 1 + 2 + 4 + 8
 			true);
 
         btSoftBody::Material* pm = psb->appendMaterial();
         psb->m_materials[0]->m_kLST = 0.3; // 0.3 or 0.6
-        psb->m_materials[0]->m_kAST = 0.1; // 
+        // psb->m_materials[0]->m_kAST = 0.4; // 
         pm->m_flags -= btSoftBody::fMaterial::DebugDraw;
         // psb->generateBendingConstraints(2, pm);
-        psb->setTotalMass(20.0); // 15kgぐらいなら布を浮かせていても破れない(RigidSphere時)
+        psb->setTotalMass(10.0); // 15kgぐらいなら布を浮かせていても破れない(RigidSphere時)
         // psb->setTotalMass(615.0);  // 600 // 1kg 
         // psb->setVolumeDensity(1);
 	psb->translate(btVector3(0, 0, Bed_height));
 	psb->m_cfg.kDF = 1;
-        psb->m_cfg.kCHR = 0.1; // 0.3
-        psb->m_cfg.kKHR = 0.3; // 0.3
+        psb->m_cfg.kCHR = 0.3; // 0.3
+        psb->m_cfg.kKHR = 0.3; // 0.2
         // psb->m_cfg.kSRHR_CL = 1;
         // psb->m_cfg.kSR_SPLT_CL = 0;
         // psb->m_cfg.kSSHR_CL = 0.1; // 0.3
@@ -774,9 +752,6 @@ static btSoftBody* Cloth(Nursing* pdemo)
          psb->m_cfg.viterations = 100;
          psb->m_cfg.diterations = 100;
         // psb->m_cfg.citerations = 100;
-
-        psb->setFriction(1);
-        psb->setRollingFriction(1);
 
         pdemo->getSoftDynamicsWorld()->getSolverInfo().m_splitImpulse = true;
 
@@ -1053,11 +1028,8 @@ void Nursing::initPhysics()
   // const char* typeName = info.name();
   // b3Printf("typeName = %s\n", typeName);
   // -------------------------------------------------
-
   m_guiHelper->createPhysicsDebugDrawer(m_dynamicsWorld);
-  m_dynamicsWorld->getDebugDrawer()->setDebugMode(0);
-
-#if 0 
+#if 0
   m_dynamicsWorld->getDebugDrawer()->setDebugMode(
       	  btIDebugDraw::DBG_DrawConstraints 
       	+ btIDebugDraw::DBG_DrawContactPoints 
@@ -1067,9 +1039,7 @@ void Nursing::initPhysics()
 	);
 #endif
 
-  // m_dynamicsWorld->debugDrawWorld();
-  // int debugMode = m_dynamicsWorld->getDebugDrawer()->getDebugMode(); 
-  // b3Printf("	=====> debugMode = %d\n", debugMode);
+  m_dynamicsWorld->debugDrawWorld();
   m_dynamicsWorld->setInternalTickCallback(pickingPreTickCallback, this, true);
 
   m_dynamicsWorld->getDispatchInfo().m_enableSPU = true;
@@ -1186,18 +1156,13 @@ void Nursing::initPhysics()
   createBedBox(this);
 #endif
 
-#ifdef CREATE_COMPOUND_BED
   createCompoundBed(this);
-#endif
 
 #ifdef CREATE_RIGID_SHPERE
-  createRigidSphere(this, 2.f);
+  createRigidSphere(this, 20.f);
   // createRigidSphere(this, 0.1);
 #endif
 
-#ifdef CREATE_RIGID_BOX
-  createRigidBox(this, 1.f);
-#endif
 
   // 最初に全フレームのkeypointデータを読み込む
   const std::string dir_path = "./keypoint_folder/";
@@ -1210,8 +1175,6 @@ void Nursing::initPhysics()
   b3Printf("  Total Frame : %d\n", vstr.size()/num_humanoid);
   b3Printf("  Humanoid Num : %d\n", num_humanoid);
 
-  // arrangeKeypointData("./keypoint_folder/arrange_KeypointFile.txt");
-  arrangeKeypointData();
 
 #if 0
   createEmptyDynamicsWorld();
@@ -1300,6 +1263,11 @@ void Nursing::initPhysics()
 	  // btQuaternion q; q.setRotation(btVector3(0, 0, 1), 0); // ベッドは縦向きで、カメラの方向に顔を向けている 
 	  // rootTrans.setRotation(q);
 
+	  // btScalar root_joint_pos_A[3] = {0.f};
+	  // getInitRootJointPos(root_joint_pos_A, m-1);
+	  // btScalar root_x = root_joint_pos[1] / 250.f;
+	  // btScalar root_y = root_joint_pos[0] / 250.f;
+	  // btScalar root_z = root_joint_pos[2] / 250.f;
 
 	  // b3Printf("   root_x => %f\n", root_x);
 	  // b3Printf("   root_y => %f\n", root_y);
@@ -1307,41 +1275,31 @@ void Nursing::initPhysics()
 	  
 	  if( m == 1 )
 	  {
-	    btScalar root_joint_pos_humanA[3] = {0.f};
-	    getInitRootJointPos(root_joint_pos_humanA, 0);
-	    btScalar root_x = root_joint_pos_humanA[1];
-	    btScalar root_y = btFabs(root_joint_pos_humanA[0]);
-	    b3Printf("root_y ======> %f\n", root_y);
-	    root_y = root_y / 1000.f;
-	    b3Printf("root_x ======> %f\n", root_x);
-	    // btScalar root_z = root_joint_pos[2] / 250.f;
-      	    rootTrans.setIdentity();
+	    rootTrans.setOrigin(btVector3(-1.f, 0.f, 0.9));
 	    btQuaternion q; 
-	    rootTrans.setOrigin(btVector3(-1.f, 0.f, 0.85));
-	    rootTrans.setOrigin(btVector3(-1.f, -root_y, 0.85)); 
-	    rootTrans.setOrigin(btVector3(0.f, 0.f, -0.2f)); // 論文用
-	    rootTrans.setOrigin(btVector3(1000.f, 0.f, -0.2f)); // 論文用
-	    // rootTrans.setOrigin(btVector3(0.f, -1.34f, 0.85)); // IMG1268
-	    // q.setRotation(btVector3(0, -1, 0), SIMD_PI/2); // 仰向け(頭手前側)
-	    // q.setEulerZYX(3*SIMD_PI/2, -SIMD_PI/2, 0); // 仰向け(頭左側)
-	    // q.setEulerZYX(SIMD_PI + 20*SIMD_PI/180, -SIMD_PI/2, 0); // 仰向け(頭奥側)
-	    root_y = 0.8;
-	    // rootTrans.setOrigin(btVector3(0.1f, -root_y, 0.1));
-	    // q.setRotation(btVector3(0, 0, 1), -SIMD_PI/2); // ベットに背を向けている 
-       	    // rootTrans.setRotation(q);
+	    // q.setRotation(btVector3(0, -1, 0), SIMD_PI/2); // 仰向け 
+	    q.setEulerZYX(SIMD_PI, -SIMD_PI/2, 0); // 仰向け 
+       	    rootTrans.setRotation(q);
 	  }
-	  else if( m == 2 )
+	  else
 	  {
-	    btScalar root_joint_pos_humanB[3] = {0.f};
-	    getInitRootJointPos(root_joint_pos_humanB, 1);
-	    btScalar root_y = btFabs(root_joint_pos_humanB[0]);
-	    b3Printf("root_y ======> %f\n", root_y);
-	    root_y = 1.1;
-            rootTrans.setIdentity();
-	    rootTrans.setOrigin(btVector3(-0.5f, -root_y, 0.3));
-	    btQuaternion q; 
-	    q.setRotation(btVector3(0, 0, 1), (SIMD_PI/2 - 27*SIMD_PI/180)); // ベッドの方を向いている 
-	    q.setEulerZYX(SIMD_PI/2 - 27*SIMD_PI/180, 28*SIMD_PI/180, 0); // 仰向け(頭奥側)
+	    btScalar root_joint_pos[3] = {0.f};
+	    getInitRootJointPos(root_joint_pos, 1);
+	    btScalar root_y = root_joint_pos[0];
+	    getInitRootJointPos(root_joint_pos, 2);
+	    if(root_y >= 0.f)
+	      root_y = root_y + root_joint_pos[0];
+	    else
+	      root_y = root_y - root_joint_pos[0];
+
+	    root_y = btFabs(root_y);
+	    // btScalar root_x = root_joint_pos[1] / 250.f;
+	    root_y = root_y / 600.f;
+	    b3Printf("root_y = %f\n", root_y);
+	    // btScalar root_z = root_joint_pos[2] / 250.f;
+	    // root_y = 0.7;
+	    rootTrans.setOrigin(btVector3(0.f, -root_y, -0.2));
+	    btQuaternion q; q.setRotation(btVector3(0, 0, 1), SIMD_PI/2); // ベッドの方を向いている 
        	    rootTrans.setRotation(q);
 	  }
 	}
@@ -1377,10 +1335,8 @@ void Nursing::initPhysics()
 	if( m == 0 )
 	{
           btCollisionObject* ground_col = btMultiBodyLinkCollider::upcast(mb->getBaseCollider());
-	  // ground_col->setFriction(1000.0);
-          // ground_col->setRollingFriction(1000.0);
-	  ground_col->setFriction(1.0);
-          ground_col->setRollingFriction(1.0);
+	  ground_col->setFriction(1000.0);
+          ground_col->setRollingFriction(1000.0);
 	  // b3Printf("ground_friction = %d\n", ground_col->getFriction());
 	  // b3Printf("ground_rollingfriction = %d\n", ground_col->getRollingFriction());
 	}
@@ -1406,16 +1362,6 @@ void Nursing::initPhysics()
         // base_col->setRollingFriction(2.0);
 
 	// b3Printf("numLinks = %d", numLinks);
-
-
-	// 0フレーム目の姿勢を初期姿勢にする
-	/*
-	if( m == 1 )
-	  calcJointAngle(humanA_angle_array, 0, m-1); 
-	else if( m == 2 )
-	  calcJointAngle(humanB_angle_array, 0, m-1); 
-	*/
-
 
 	for (int i = 0; i < numLinks; i++) // numLinks = 33
 	{
@@ -1530,35 +1476,19 @@ void Nursing::initPhysics()
 	      sprintf(motorName, "%s q ", jointName->c_str());
 	      MotorJointNames.push_back(*jointName);
 	      btScalar* motorPos = &m_data->m_motorTargetPositions[m_data->m_numMotors];
-
-
 	      *motorPos = 0.f;
-	      // SliderParams slider(motorName, motorPos);
-	      // slider.m_minVal = -4;
-	      // slider.m_maxVal = 4;
-	      // slider.m_clampToIntegers = false;
-	      // slider.m_clampToNotches = false;
+	      SliderParams slider(motorName, motorPos);
+	      slider.m_minVal = -4;
+	      slider.m_maxVal = 4;
+	      slider.m_clampToIntegers = false;
+	      slider.m_clampToNotches = false;
 	      // b3Printf("param = %f\n", m_guiHelper->getParameterInterface());
 	      // JointMotorのスライダーを設定
 	      // m_guiHelper->getParameterInterface()->registerSliderFloatParameter(slider);
 	      float maxMotorImpulse = 5.f;
 	      btMultiBodyJointMotor* motor = new btMultiBodyJointMotor(mb, mbLinkIndex, 0, 0, maxMotorImpulse);
 	      motor->setErp(0.1);
-	      // motor->setMaxAppliedImpulse(0);
-	      
-	      /*
-	      if( m == 1 )
-	      {
-		btScalar pos = humanA_angle_array[m_data->m_numMotors];
-		motor->setPositionTarget(pos);
-	      }
-	      if( m == 2 )
-	      {
-		btScalar pos = humanB_angle_array[m_data->m_numMotors];
-		motor->setPositionTarget(pos);
-	      }
-	      */
-
+	      //motor->setMaxAppliedImpulse(0);
 	      m_data->m_jointMotors[m_data->m_numMotors] = motor;
 	      m_dynamicsWorld->addMultiBodyConstraint(motor);
 	      m_data->m_numMotors++;
@@ -1595,6 +1525,8 @@ void Nursing::initPhysics()
   }
 #endif
 
+  btVector4 rgba = btVector4(1, 1, 1, 1);
+  Nursing::autogenerateGraphicsObjects(m_dynamicsWorld, rgba);
 #if 0
   int texWidth = 1024;
   int texHeight = 1024;
@@ -1603,44 +1535,6 @@ void Nursing::initPhysics()
 #endif
 
 
-  
-  /*
-  // 0フレーム目の姿勢を取らせる
-  for(int n = 0; n < m_datas.size(); n++)
-  {
-    b3Printf("    change Init Pos    \n");
-
-    struct ImportMJCFInternalData* humanoid_data = m_datas[n];
-
-    if( n == 0 )
-      calcJointAngle(humanA_angle_array, 0, n); 
-    else
-      calcJointAngle(humanB_angle_array, 0, n); 
-	
-    for (int i = 0; i < humanoid_data->m_numMotors; i++)
-    {
-      if (humanoid_data->m_jointMotors[i])
-      {
-	btScalar pos;
-
-	if( n == 0 )
-	{
-          pos = humanA_angle_array[i];
-	  // pos = M_PI/6;
-	}
-	else
-          pos = humanB_angle_array[i];
-
-	humanoid_data->m_jointMotors[i]->setPositionTarget(pos);    
-      }
-    }
-  }
-  */
-  
-
-
-  btVector4 rgba = btVector4(1, 1, 1, 1);
-  Nursing::autogenerateGraphicsObjects(m_dynamicsWorld, rgba);
 }
 
 void Nursing::exitPhysics()
@@ -1791,11 +1685,12 @@ bool judgeCalc(const btScalar pos[][3], int a, int b, int c)
   }
 #endif
 
-  if(pos[a][0] == 0.f && pos[a][1] == 0.f && pos[a][2] == 0.f &&
-     pos[b][0] == 0.f && pos[b][1] == 0.f && pos[b][2] == 0.f &&
-     pos[c][0] == 0.f && pos[c][1] == 0.f && pos[c][2] == 0.f
-     )
-    return false;
+  if(pos[a][0] == 0.f && pos[a][1] == 0.f && pos[a][2] == 0.f)
+	  return false;
+  if(pos[b][0] == 0.f && pos[b][1] == 0.f && pos[b][2] == 0.f)
+	  return false;
+  if(pos[c][0] == 0.f && pos[c][1] == 0.f && pos[c][2] == 0.f)
+	  return false;
 
 
   return true;
@@ -1824,122 +1719,6 @@ void Nursing::readKeyPointFile(const char* filename, std::vector<std::string> &v
   return;
 }
 
-//
-// keypointの検出されている順番を、同じ順番になるように並び替える
-//
-// void Nursing::arrangeKeypointData(const char* output_filename)
-void Nursing::arrangeKeypointData()
-{
-  b3Printf(" -----  arrange keypoint data----- \n");
-
-  // std::ofstream output_file(output_filename);
-  // output_file.open(output_filename, std::ios::out);
-
-
-  // const int joint_num = 17;
-  // baselineの骨格モデルを構成しているkeypoint
-  // unsigned int baseline_joint[joint_num] = {0, 1, 2, 3, 6, 7, 8, 12, 13, 14, 15, 17, 18, 19, 25, 26, 27};   
-  // baselineのデータを読み込む配列
-  // btScalar tmp_pos_data[32][3] = {0.f};
-
-  btScalar humanA_root_x = 0.f;
-  btScalar humanA_before_root_x = 0.f;
-  btScalar humanB_root_x = 0.f;
-  btScalar humanB_before_root_x = 0.f;
-
-  // x座標があまりにも急に変化している時、データを入れ替える
-  for(int data_num = 0; data_num < vstr.size(); data_num++) // 1フレーム目にrootが検出されていないときも考慮
-  {
-    if(humanA_root_x != 0.f && humanB_root_x !=0.f)
-      break;
-
-    std::string line_data = vstr[data_num];
-
-    std::istringstream i_stream(line_data);
-    std::string tmp;
-
-    unsigned int i = 0, j = 0;
-    while(getline(i_stream, tmp, ',')) {
-      if( i == 8 && j == 0 )
-      {
-	// thoraxを基準にする
-	if(std::stof(tmp) != 0.f && data_num%2 == 0)
-	{
-	  humanA_root_x = std::stof(tmp);
-	}
-	if(std::stof(tmp) != 0.f && data_num%2 != 0)
-	{
-	  humanB_root_x = std::stof(tmp);
-	}
-	break;
-      }
-    }
-    j++;
-  }
-
-  for(int data_num = 2; data_num < vstr.size()-1; data_num++)
-  {
-    std::string line_data_1 = vstr[data_num];
-    std::string line_data_2 = vstr[data_num + 1];
-
-    std::istringstream i_stream(line_data_1);
-    std::string tmp;
-
-    btScalar root_x = 0.f;
-    unsigned int i = 0, j = 0;
-    while(getline(i_stream, tmp, ',')) {
-      if( i == 8 && j == 0 )
-      {
-	// humanAのthoraxが推定されている時
-	if( std::stof(tmp) != 0.f && data_num%2 == 0 )
-	{
-	  root_x = std::stof(tmp);
-	  if(btFabs(humanA_root_x - root_x) > 100.f)
-	  {
-	    vstr[data_num] = line_data_2;
-	    vstr[data_num + 1] = line_data_1;
-	    b3Printf("arrange frame = %d\n", data_num/2);
-	  }
-	  humanA_before_root_x = humanA_root_x;
-	  humanA_root_x = root_x;
-
-	  break;
-	}
-	// humanBのthoraxが推定されている時
-	if( std::stof(tmp) != 0.f && data_num%2 != 0 )
-	{
-	  root_x = std::stof(tmp);
-	  if(btFabs(humanB_root_x - root_x) > 100.f)
-	  {
-	    vstr[data_num - 1] = line_data_2;
-	    vstr[data_num] = line_data_1;
-	    b3Printf("arrange frame = %d\n", data_num/2);
-	  }
-	  humanB_before_root_x = humanB_root_x;
-	  humanB_root_x = root_x;
-
-	  break;
-	}
-      }
-      j++;
-    }
-  }
-
-  /*
-  for(int data_num = 0; data_num < vstr.size(); data_num++)
-  {
-    std::string line_data = vstr[data_num];
-    output_file << "[" << line_data << "]" << std::endl;
-  }
-
-  output_file.close();
-  */
-}
-
-
-//
-// fフレーム目のn番目の人のデータを取得
-//
 void Nursing::getPosData(const std::vector<std::string> &vstr, btScalar pos_data[][3], int frame, int num)
 {
   b3Printf(" ----- reading frame : %d  human : %d  keypoint data ----- \n", frame, num);
@@ -2226,7 +2005,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     rot_test1 = btVector3(Rz.tdotx(rot_thoraxPlane_crossVec), Rz.tdoty(rot_thoraxPlane_crossVec), Rz.tdotz(rot_thoraxPlane_crossVec));
     rot_test2 = rot_test1.cross(rot_waistPlane_crossVec);
     norm = rot_test2.norm();
-    // b3Printf("(-Rz*thorax).cross(waist) -> XY-Plane):: x = %f y = %f z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
+    b3Printf("(-Rz*thorax).cross(waist) -> XY-Plane):: x = %f y = %f z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
   }
   else
   {
@@ -2338,7 +2117,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     btVector3 rot_b = btVector3(rot_mat.tdotx(b), rot_mat.tdoty(b), rot_mat.tdotz(b));
 
     norm = rot_pelvis.norm();
-    // b3Printf(" baseline:pelvis -> Init-Pelvis :: x = %f, y = %f, z = %f\n", rot_pelvis.getX()/norm,rot_pelvis.getY()/norm, rot_pelvis.getZ()/norm);
+    b3Printf(" baseline:pelvis -> Init-Pelvis :: x = %f, y = %f, z = %f\n", rot_pelvis.getX()/norm,rot_pelvis.getY()/norm, rot_pelvis.getZ()/norm);
 
     // 初期脚平面の法線ベクトル(膝の回転軸と同じ)
     btVector3 init_plane_crossVec = btVector3(-1.f, 0.f, 0.f);
@@ -2403,7 +2182,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     // 脚平面の法線ベクトルがX軸負方向に一致するか確認
     rot_test1 = btVector3(rot_mat.tdotx(plane_crossVec), rot_mat.tdoty(plane_crossVec), rot_mat.tdotz(plane_crossVec));
     norm = rot_test1.norm();
-    // b3Printf(" baseline:leg-plane-crossVec -> Negative-X-Axis :: x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
+    b3Printf(" baseline:leg-plane-crossVec -> Negative-X-Axis :: x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
 
     // 
     // calc right_hip_y angle
@@ -2432,7 +2211,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
 
     rot_test1 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
     norm = rot_test1.norm();
-    // b3Printf(" baseline:upper_leg -> Init-UpperLeg :: x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
+    b3Printf(" baseline:upper_leg -> Init-UpperLeg :: x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
   }
   else
   {
@@ -2569,7 +2348,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     // 骨盤ベクトルを初期骨盤へ回転
     rot_test2 = btVector3(rot_mat.tdotx(pelvis), rot_mat.tdoty(pelvis), rot_mat.tdotz(pelvis));
     norm = rot_test2.norm();
-    // b3Printf("baseline:pelvis -> Init-Pelvis :: x = %f, y = %f, z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
+    b3Printf("baseline:pelvis -> Init-Pelvis :: x = %f, y = %f, z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
 
 
     if( judgeCalc(pos_data, 4, 5, 6) ) // 脚のひねりも計算できる時(足首まで推定されている時)
@@ -2645,7 +2424,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
       // 脚平面の法線ベクトルがX軸負方向に一致するか確認
       rot_test1 = btVector3(rot_mat.tdotx(plane_crossVec), rot_mat.tdoty(plane_crossVec), rot_mat.tdotz(plane_crossVec));
       norm = rot_test1.norm();
-      // b3Printf("baseline:leg-plane-crossVec -> Positive-X-Axis  x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
+      b3Printf("baseline:leg-plane-crossVec -> Positive-X-Axis  x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
 
       //
       // calc left_hip_y angle
@@ -2678,7 +2457,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
 
       rot_test2 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
       norm = rot_test2.norm();
-      // b3Printf("baseline:upper_leg -> Init-UpperLeg :: x = %f, y = %f, z = %f\n", rot_test2.getX()/norm,rot_test2.getY()/norm, rot_test2.getZ()/norm);
+      b3Printf("baseline:upper_leg -> Init-UpperLeg :: x = %f, y = %f, z = %f\n", rot_test2.getX()/norm,rot_test2.getY()/norm, rot_test2.getZ()/norm);
     }
 
 #if 1
@@ -2741,7 +2520,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
       // 矯正後の上脚が初期上脚に一致するか確認
       rot_test1 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
       norm = rot_test1.norm();
-      // b3Printf("baseline:rot_upper_leg -> Init-UpperLeg :: x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
+      b3Printf("baseline:rot_upper_leg -> Init-UpperLeg :: x = %f, y = %f, z = %f\n", rot_test1.getX()/norm,rot_test1.getY()/norm, rot_test1.getZ()/norm);
     }
 #endif
   }
@@ -2818,15 +2597,11 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     d = shoulder.dot(init_shoulder_crossVec);
     N = shoulder.norm() * init_shoulder_crossVec.norm();
 
-    btVector3 project_shoulder = btVector3(shoulder.getX(), shoulder.getY(), 0.f);
-    // d = shoulder.dot(project_shoulder);
-    // N = shoulder.norm() * project_shoulder.norm();
-
-    // project_shoulder = btVector3(shoulder.getX(), 0.f, shoulder.getZ());
-    // temp_crossVec = init_shoulder_vec.cross(project_shoulder);
+    btVector3 project_shoulder = btVector3(shoulder.getX(), 0.f, shoulder.getZ());
+    temp_crossVec = init_shoulder_vec.cross(project_shoulder);
 
     if(acos(d/N) <= M_PI/2)
-    // if(temp_crossVec.getY() <= 0.f)
+    // if(temp_crossVec.getY() >= 0.0)
     {
       // 現在の肩が平面より上側にある時
       rotA = M_PI/2 - acos(d/N);
@@ -2891,7 +2666,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     // 肩が初期肩に一致するか確認
     rot_test2 = btVector3(rot_mat.tdotx(shoulder), rot_mat.tdoty(shoulder), rot_mat.tdotz(shoulder));
     norm = rot_test2.norm();
-    // b3Printf("baseline:shoulder -> Init-Shoulder :: x = %f y = %f z = %f\n", rot_test2.getX()/norm,rot_test2.getY()/norm, rot_test2.getZ()/norm);
+    b3Printf("baseline:shoulder -> Init-Shoulder :: x = %f y = %f z = %f\n", rot_test2.getX()/norm,rot_test2.getY()/norm, rot_test2.getZ()/norm);
 
 
     // 関節角度計算
@@ -2909,18 +2684,15 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     d = negative_Y_axis.dot(project_plane_crossVec);
     N = negative_Y_axis.norm() * project_plane_crossVec.norm();
     temp_crossVec = project_plane_crossVec.cross(negative_Y_axis);
-    // temp_crossVec = negative_Y_axis.cross(project_plane_crossVec);
 
     if(temp_crossVec.getZ() >= 0.0)
     {
       // 上から見て反時計回りに腕をねじっている
       angle_array[15] = -acos(d/N);
-      // angle_array[15] = acos(d/N);
     }
     else
     {
       angle_array[15] = acos(d/N);
-      // angle_array[15] = -acos(d/N);
     }
 
     Rz = btMatrix3x3(btCos(angle_array[15]), -btSin(angle_array[15]), 0,
@@ -2962,7 +2734,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     // 腕平面の法線ベクトルがY軸負方向に一致するか確認
     rot_test1 = btVector3(rot_mat.tdotx(plane_crossVec), rot_mat.tdoty(plane_crossVec), rot_mat.tdotz(plane_crossVec));
     norm = rot_test1.norm();
-    // b3Printf("baseline:arm-plane-crossVec -> Negative-Y-Axis  x = %f, y = %f, z = %f\n", rot_test1.getX()/norm, rot_test1.getY()/norm, rot_test1.getZ()/norm);
+    b3Printf("baseline:arm-plane-crossVec -> Negative-Y-Axis  x = %f, y = %f, z = %f\n", rot_test1.getX()/norm, rot_test1.getY()/norm, rot_test1.getZ()/norm);
 
     //
     // calc right_shoulder_x angle
@@ -2977,12 +2749,10 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     {
       // 脇を開いている
       angle_array[17] = -acos(d/N);
-      angle_array[17] = acos(d/N);
     }
     else
     {
       angle_array[17] = acos(d/N);
-      angle_array[17] = -acos(d/N);
     }
 
     Ry = btMatrix3x3(btCos(-angle_array[17]), 0, btSin(-angle_array[17]),
@@ -2995,7 +2765,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
 
     rot_test2 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
     norm = rot_test2.norm();
-    // b3Printf("baseline:upper_arm -> Init-UpperArm  x = %f, y = %f, z = %f\n", rot_test2.getX()/norm,rot_test2.getY()/norm, rot_test2.getZ()/norm);
+    b3Printf("baseline:upper_arm -> Init-UpperArm  x = %f, y = %f, z = %f\n", rot_test2.getX()/norm,rot_test2.getY()/norm, rot_test2.getZ()/norm);
   }
   else
   {
@@ -3136,7 +2906,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
 
     rot_test2 = btVector3(rot_mat.tdotx(shoulder), rot_mat.tdoty(shoulder), rot_mat.tdotz(shoulder));
     norm = rot_test2.norm();
-    // b3Printf("baseline:shoulder -> Init-Shoulder :: x = %f y = %f z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
+    b3Printf("baseline:shoulder -> Init-Shoulder :: x = %f y = %f z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
 
 
     // 関節角度計算
@@ -3203,7 +2973,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     // 腕平面の法線ベクトルがY軸負方向に一致するか確認
     rot_test1 = btVector3(rot_mat.tdotx(plane_crossVec), rot_mat.tdoty(plane_crossVec), rot_mat.tdotz(plane_crossVec));
     norm = rot_test1.norm();
-    // b3Printf("baseline:arm-plane-crossVec -> Negative-Y-Axis  x = %f, y = %f, z = %f\n", rot_test1.getX()/norm, rot_test1.getY()/norm, rot_test1.getZ()/norm);
+    b3Printf("baseline:arm-plane-crossVec -> Negative-Y-Axis  x = %f, y = %f, z = %f\n", rot_test1.getX()/norm, rot_test1.getY()/norm, rot_test1.getZ()/norm);
 
 
     //
@@ -3237,7 +3007,7 @@ void Nursing::calcJointAngle(btScalar *angle_array, int frame, int num)
     // 
     rot_test2 = btVector3(rot_mat.tdotx(rot_a), rot_mat.tdoty(rot_a), rot_mat.tdotz(rot_a));
     norm = rot_test2.norm();
-    // b3Printf("baseline:upper_arm -> Init-UpperArm :: x = %f y = %f z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
+    b3Printf("baseline:upper_arm -> Init-UpperArm :: x = %f y = %f z = %f\n", rot_test2.getX()/norm, rot_test2.getY()/norm, rot_test2.getZ()/norm);
   }
   else
   {
@@ -3328,10 +3098,8 @@ void Nursing::stepSimulation(float deltaTime)
     static bool once = true; // 一度だけSimulationの終了を端末上に通知するための変数
     static bool input_angle = false;
 
-    const static int start_frame = 0;
-    // const static int stop_frame = vstr.size()/2; // 32
-    const static int stop_frame = 0; // 32
-    // const static int stop_frame = 10; 
+    const static int start_frame = 29;
+    const static int stop_frame = 29;
 
     for(int n = 0; n < m_datas.size(); n++)
     {
@@ -3339,8 +3107,7 @@ void Nursing::stepSimulation(float deltaTime)
 
 
       bool flag = (data_size > keypoint_frame*num_humanoid + n) ? true : false; 
-      // if( keypoint_frame*num_humanoid+n == 0)
-      if( count == 0 && once)
+      if( keypoint_frame*num_humanoid+n == 0)
       {
 	b3Printf("  ~~~~~ Start (Nursing) Simulation ~~~~~ \n");
 	// std::string str;
@@ -3352,51 +3119,26 @@ void Nursing::stepSimulation(float deltaTime)
       if(!flag && once)
       {
 	b3Printf("  ~~~~~ Finish (Nursing) Simulation ~~~~~ \n");
-
-	if( n == 0 )
-	  for(int i = 0; i < 23; i++)
-	    humanA_angle_array[i] = 0.f;
-	else if( n == 1 )
-	  for(int i = 0; i < 23; i++)
-	    humanB_angle_array[i] = 0.f;
-
 	once = false;
       }
 
-      if(((count & 0x0) == 0 && flag && count != 0))
+      if(((count & 0x0f) == 0 && flag && count != 0))
       // if(flag)
       {
 	// b3Printf("count = %d\n", count);
 
+	if( n == 0)
+	  for(int i = 0; i < 23; i++)
+  	     angle_array[i] = 0.f;
 
-	if(once && n == 0)
-  	  b3Printf("========== frame : %d ========== \n", keypoint_frame);
+	
 
-	if(start_frame <= keypoint_frame && keypoint_frame <= stop_frame)
+	if(once)
+  	  b3Printf("frame : %d\n", keypoint_frame);
+
+	if(keypoint_frame >= start_frame && keypoint_frame <= stop_frame)
 	{
-	  if( n == 0 )
-	  {
-            // calcJointAngle(humanA_angle_array, keypoint_frame, n); 
-
-	    /*
-	    // 初期値を設定
-	    if( keypoint_frame == 0 )
-	      for (int i = 0; i < humanoid_data->m_numMotors; i++)
-	        humanA_before_angle_array[i] = humanA_angle_array[i];
-	    */
-              
-	  }
-	  else
-	  {
-            calcJointAngle(humanB_angle_array, keypoint_frame, n); 
-
-	    /*
-	    // 初期値を設定
-	    if( keypoint_frame == 0 )
-	      for (int i = 0; i < humanoid_data->m_numMotors; i++)
-	        humanB_before_angle_array[i] = humanB_angle_array[i];
-            */
-	  }
+          calcJointAngle(angle_array, keypoint_frame, n); 
 	  // once = false;
 	}
 
@@ -3404,72 +3146,23 @@ void Nursing::stepSimulation(float deltaTime)
 	{
 	  if (humanoid_data->m_jointMotors[i])
 	  {
-	    btScalar pos;
 	    // b3Printf("human = %d , i = %d\n", n, i);
 #ifdef SIMULATION
 	    // Joint角度が計算できない時とあまりに前回の結果と違う時、前回の結果を使う
-	    /*
-	    if( n == 0 )
+	    if( n == 0)
 	    {
-              if(angle_array[i] == NOT_ESTIMATED || btFabs(angle_array[i] - humanA_before_angle_array[i] > M_PI/18))
+              if(angle_array[i] == NOT_ESTIMATED || btFabs(angle_array[i] - humanA_before_angle_array[i] > M_PI/6))
 	        angle_array[i] = humanA_before_angle_array[i];
-	    }
-	    else
-	    {
-	      if(angle_array[i] == NOT_ESTIMATED || btFabs(angle_array[i] - humanB_before_angle_array[i] > M_PI/18))
+	      else if(angle_array[i] == NOT_ESTIMATED || btFabs(angle_array[i] - humanB_before_angle_array[i] > M_PI/6))
 	        angle_array[i] = humanB_before_angle_array[i];
 	    }
-	    */
 	   
 
+	    // 各人の関節角度を保存
 	    if( n == 0 )
-	    {
-
-	      // 関節角度が計算できている時
-              if(humanA_angle_array[i] != NOT_ESTIMATED)
-	      {
-		/*
-	        if(btFabs(btFabs(humanA_angle_array[i]) - btFabs(humanA_before_angle_array[i])) > M_PI/6)
-	          pos = humanA_before_angle_array[i];
-		else
-		*/
-		{
-	          pos = humanA_angle_array[i];
-	          // 関節角度を保存
-	          humanA_before_angle_array[i] = humanA_angle_array[i];
-		}
-	      }
-	      else
-	      {
-	        pos = humanA_before_angle_array[i];
-		b3Printf(" ====> use before angle\n");
-	      }
-
-	    }
+	      humanA_before_angle_array[i] = angle_array[i];
 	    else
-	    {
-
-              if(humanB_angle_array[i] != NOT_ESTIMATED)
-	      {
-		/*
-	        if(btFabs(btFabs(humanB_angle_array[i]) - btFabs(humanB_before_angle_array[i])) > M_PI/6)
-	          pos = humanB_before_angle_array[i];
-		else
-		*/
-		{
-	          pos = humanB_angle_array[i];
-	          // 関節角度を保存
-	          humanB_before_angle_array[i] = humanB_angle_array[i];
-		}
-	      }
-	      else
-	      {
-	        pos = humanB_before_angle_array[i];
-		b3Printf(" ====> use before angle\n");
-	      }
-
-	    }
-
+	      humanB_before_angle_array[i] = angle_array[i];
 
 	    /*
 	    // 変化量があまりに大きい時、推定が逆になっている
@@ -3483,7 +3176,7 @@ void Nursing::stepSimulation(float deltaTime)
 	    */
 	    
 
-	    // btScalar pos = angle_array[i];
+	    btScalar pos = angle_array[i];
 
 
 	    /*
@@ -3495,7 +3188,7 @@ void Nursing::stepSimulation(float deltaTime)
                
 	    if(pos && flag && once)
 	    {
-	      // b3Printf("human %d :: %s = %f\n", n, joint_map[i].c_str(), (angle_array[i]*180)/M_PI);
+	      b3Printf("human %d :: %s = %f\n", n, joint_map[i].c_str(), (angle_array[i]*180)/M_PI);
 	    }
 	    else if(!pos && input_angle)
 	    {
@@ -3532,16 +3225,16 @@ void Nursing::stepSimulation(float deltaTime)
 
     if(DrawContactForceFlag)
     {
-      DrawContactForce(fixedTimeStep);
+      DrawContactForce();
     }
     if(DrawMotorForceFlag)
     {
       if(count > 1)
-        DrawMotorForce(fixedTimeStep);
+        DrawMotorForce();
     }
     if(DrawSoftForceFlag)
     {
-      DrawSoftBodyAppliedForce(fixedTimeStep);
+      DrawSoftBodyAppliedForce();
     }
 
     count++;
@@ -3575,7 +3268,7 @@ void Nursing::DrawContactForce(btScalar fixedTimeStep)
 #endif
 
     int num_contacts = manifold->getNumContacts(); // オブジェクト間の衝突点数
-    btScalar pointSize = 30;
+    btScalar pointSize = 20;
     // int flag = btCollisionObject::CF_KINEMATIC_OBJECT | btCollisionObject::CF_STATIC_OBJECT;
     int flag = btCollisionObject::CF_STATIC_OBJECT;
     int obj_flag = obA->getCollisionFlags() | obB->getCollisionFlags();
@@ -3598,15 +3291,18 @@ void Nursing::DrawContactForce(btScalar fixedTimeStep)
 
 	  btScalar delta_color = contact_force / MAX_CONTACT_FORCE;
 	  // btVector3 color2 = btVector3(1, 1-delta_color, 1-delta_color);
-	  // btVector3 color = white;
-	  btVector3 color = green;
-	  if( 0.f < contact_force && contact_force < MAX_CONTACT_FORCE/3)
-	    color = green;
-	  else if( MAX_CONTACT_FORCE/3 <= contact_force && contact_force < 2*MAX_CONTACT_FORCE/3)
-             color = yellow;
-	  else if( 2*MAX_CONTACT_FORCE/3 <= contact_force && contact_force < MAX_CONTACT_FORCE)
+	  btVector3 color = white;
+	  if( 0.f < contact_force && contact_force < 125.f)
+	    color = white;
+	  else if( 125.f < contact_force && contact_force < 250.f)
+             color = green;
+	  // else if( 200.f < contact_force && contact_force < 300.f)
+          //   color = blue;
+	  else if( 250.f < contact_force && contact_force < 375.f)
+            color = yellow;
+	  else if( 375.f < contact_force && contact_force < 500.f)
             color = red;
-	  else if( MAX_CONTACT_FORCE <= contact_force)
+	  else if( 500.f < contact_force)
 	  {
             color = black;
 	    // b3Printf("contact force = %f, %f(imp*dt)\n", contact_force, contact_force); 
@@ -3660,28 +3356,28 @@ void Nursing::DrawMotorForce(btScalar fixedTimeStep)
 	    }
 	  }
 	  btVector3 pos = tr.getOrigin();
-	  btScalar pointSize = 25;
+	  btScalar pointSize = 15;
 	  btScalar delta_color = motor_force / MAX_JOINTMOTOR_TORQUE;
 	  // btVector3 color = btVector3(1-delta_color, 1-delta_color, 1-delta_color);
 	  // b3Printf("Draw human = %d, joint = %d\n", n, i);
-	  // btVector3 color = white;
-	  btVector3 color;
-	  if( 0.f < motor_force && motor_force < MAX_JOINTMOTOR_TORQUE/3)
-	    color = green;
-	  else if( MAX_JOINTMOTOR_TORQUE/3 <= motor_force && motor_force < 2*MAX_JOINTMOTOR_TORQUE/3)
+	  btVector3 color = white;
+	  if( 0.f < motor_force && motor_force < 100.f)
+	    color = white;
+	  else if( 100.f < motor_force && motor_force < 200.f)
+            color = green;
+	  // else if( 160.f < motor_force && motor_force < 240.f)
+          //  color = blue;
+	  else if( 200.f < motor_force && motor_force < 300.f)
             color = yellow;
-	  else if( 2*MAX_JOINTMOTOR_TORQUE/3 <= motor_force && motor_force < MAX_JOINTMOTOR_TORQUE)
+	  else if( 300.f < motor_force && motor_force < 400.f)
             color = red;
-	  else if( MAX_JOINTMOTOR_TORQUE <= motor_force)
+	  else if( 400.f < motor_force)
 	  {
             color = black;
 	    // b3Printf("	joint torque = %f\n", motor_force);
 	  }
 
-	  // color = black;
-
-	  if(motor_force > 0.f)
-	    m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
+	  m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
 	}
       }
     }
@@ -3700,7 +3396,7 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 
   btScalar total_f = 0;
   btScalar total_ima = 0;
-  btScalar pointSize = 10;
+  btScalar pointSize = 15;
   btVector3 pos = btVector3(0, 0, 0);
 #if 1
   if(softWorld)
@@ -3835,30 +3531,16 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 		btTransform trans = cti.m_colObj->getWorldTransform ();
 		btVector3 rigid_center = trans.getOrigin();
 		// rigidCol->applyImpulse(impulse, c.m_c1);
-		btScalar pointSize = 30;
+		btScalar pointSize = 10;
 		// btVector3 pos = c.m_c1;
 		btVector3 pos = rigid_center + c.m_c1;
 		// btVector3 pos = c.m_node->m_x;
-		if(impulse.length() > 0.f)
+		btVector3 color = btVector3(1, 1, 0);
+		if(impulse.length() > 0.0001)
 		{
 		  // b3Printf("impulse = %f, %f, %f length = %f\n", impulse.x(), impulse.y(), impulse.z(), impulse.length()); 
 		  // b3Printf("c.m_c1 = %f, %f, %f\n",c.m_c1.x(), c.m_c1.y(), c.m_c1.z()); // Anchorの位置を返す
 	          // b3Printf("m_x2(node position) = %f, %f, %f\n", c.m_node->m_x.x(), c.m_node->m_x.y(), c.m_node->m_x.z());
-
-		  btScalar force = impulse.length() / fixedTimeStep;
-
-		  // btVector3 color = white;
-		  btVector3 color = green;
-		  if( 0.f < force && force < MAX_SOFTBODY_FORCE/3)
-		    color = green;
-		  else if( MAX_SOFTBODY_FORCE/3 <= force && force < 2*MAX_SOFTBODY_FORCE/3)
-		     color = yellow;
-		  else if( 2*MAX_SOFTBODY_FORCE/3<= force && force < MAX_SOFTBODY_FORCE)
-		    color = red;
-		  else if( MAX_SOFTBODY_FORCE <= force)
-		    color = black;
-                  b3Printf("force = %f[N*s/s = N]\n", force);
-
 		  m_guiHelper->getRenderInterface()->drawPoint(pos, color, pointSize);
 		  total_impulse += impulse.length();
 		  if(max_impulse < impulse.length())
@@ -3866,7 +3548,7 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 		    max_impulse = impulse.length();
                     // b3Printf("max_impulse = %f[N*s = kg*m/s]\n", max_impulse);
 		    max_force = max_impulse / fixedTimeStep;
-                    b3Printf("Force(max_impulse/timeStep) = %f[N*s/s = N]\n", max_force);
+                    // b3Printf("Force(max_impulse/timeStep) = %f[N*s/s = N]\n", max_force);
 		  }
 		}
 	      }
@@ -3889,17 +3571,19 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 		btScalar delta_color = force / MAX_SOFTBODY_FORCE; 
 		// btVector3 color = btVector3(1, 1, 1-delta_color);
 
-		// btVector3 color = white;
-		btVector3 color = green;
-		if( 0.f < force && force < MAX_SOFTBODY_FORCE/3)
-		  color = green;
-		else if( MAX_SOFTBODY_FORCE/3 <= force && force < 2*MAX_SOFTBODY_FORCE/3)
-		   color = yellow;
-		else if( 2*MAX_SOFTBODY_FORCE/3<= force && force < MAX_SOFTBODY_FORCE)
+		btVector3 color = white;
+		if( 0.f < force && force < 0.2f)
+		  color = white;
+		else if( 0.2f < force && force < 0.4f)
+		   color = green;
+		// else if( 0.2f < force && force < 0.3f)
+		//   color = blue;
+		else if( 0.2f < force && force < 0.4f)
+		  color = yellow;
+		else if( 0.4f < force && force < 0.6f)
 		  color = red;
-		else if( MAX_SOFTBODY_FORCE <= force)
+		else if( 0.6f < force)
 		  color = black;
-                b3Printf("force = %f[N*s/s = N]\n", force);
 
 		// b3Printf("deltaV = %f, %f, %f length = %f\n", deltaV.x(), deltaV.y(), deltaV.z());
 		// if(impulse.length())
@@ -3918,7 +3602,7 @@ void Nursing::DrawSoftBodyAppliedForce(btScalar fixedTimeStep)
 		    max_impulse = impulse.length();
                     // b3Printf("max_impulse = %f[N*s = kg*m/s]\n", max_impulse);
 		    max_force = force;
-                    b3Printf("Force(max_impulse/timeStep) = %f[N*s/s = N]\n", max_force);
+                    // b3Printf("Force(max_impulse/timeStep) = %f[N*s/s = N]\n", max_force);
 		  }
 		}
 	      }

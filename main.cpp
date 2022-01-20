@@ -246,6 +246,8 @@ int main(int argc, char* argv[])
   
   example->initPhysics();
 
+  b3Clock clock;
+
   example->resetCamera();
   
   
@@ -254,7 +256,6 @@ int main(int argc, char* argv[])
   // }while(btScalar(wait_clock.getTimeInSeconds()) < 3.f);
 
 
-  b3Clock clock;
 
   do
     {
